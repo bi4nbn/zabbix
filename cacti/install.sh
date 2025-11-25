@@ -3,12 +3,31 @@ set -e
 
 BASE_DIR="/opt/cacti"
 
+echo "=== 检查 Docker Compose ==="
+if command -v docker-compose &> /dev/null; then
+    COMPOSE_CMD="docker-compose"
+elif docker compose version &> /dev/null; then
+    COMPOSE_CMD="docker compose"
+else
+    echo "Docker Compose 未安装，正在安装 docker-compose-plugin..."
+    apt update
+    apt install -y docker-compose-plugin
+    if docker compose version &> /dev/null; then
+        COMPOSE_CMD="docker compose"
+    else
+        echo "Error: Docker Compose 安装失败，请检查网络或源设置！"
+        exit 1
+    fi
+fi
+echo "=== Docker Compose 命令: $COMPOSE_CMD ==="
+
+# 创建目录结构
 echo "=== 创建目录结构 ==="
 mkdir -p $BASE_DIR
 cd $BASE_DIR
-
 mkdir -p mysql_data rra plugins resource scripts
 
+# 生成 docker-compose.yml
 echo "=== 生成 docker-compose.yml ==="
 cat > $BASE_DIR/docker-compose.yml << 'EOF'
 version: '3.8'
@@ -31,7 +50,8 @@ services:
     restart: always
 EOF
 
-echo "=== 生成 mysql.cnf 配置 ==="
+# 生成 mysql.cnf
+echo "=== 生成 mysql.cnf ==="
 cat > $BASE_DIR/mysql.cnf << 'EOF'
 [mysqld]
 user = mysql
@@ -94,33 +114,19 @@ socket = /var/run/mysqld/mysqld.sock
 default-character-set = utf8mb4
 EOF
 
-# 自动检测 docker-compose / docker compose
-if command -v docker-compose &> /dev/null; then
-    COMPOSE_CMD="docker-compose"
-elif docker compose version &> /dev/null; then
-    COMPOSE_CMD="docker compose"
-else
-    echo "=== 检测不到 Docker Compose，正在安装 docker-compose-plugin ==="
-    apt update
-    apt install -y docker-compose-plugin
-    if docker compose version &> /dev/null; then
-        COMPOSE_CMD="docker compose"
-    else
-        echo "Error: Docker Compose 安装失败，请检查网络或源设置！"
-        exit 1
-    fi
-fi
-
-echo "=== 使用 $COMPOSE_CMD 启动 Cacti 容器 ==="
+# 启动容器
+echo "=== 启动 Cacti 容器 ==="
 $COMPOSE_CMD up -d
 
+# 等待容器启动
 echo "=== 等待容器启动（10 秒）==="
 sleep 10
 
-echo "=== 自动安装中文字体 ==="
+# 安装中文字体并刷新缓存
+echo "=== 安装中文字体 ==="
 docker exec -it cacti bash -c "apt update && apt install -y fonts-wqy-microhei fonts-dejavu-core && fc-cache -fv"
 
-# 自动获取主机 IP（排除 127.0.0.1 和 Docker 网段）
+# 获取主机 IP
 IP_ADDR=$(hostname -I | awk '{for(i=1;i<=NF;i++) if($i !~ /^127\./ && $i !~ /^172\./) {print $i; exit}}')
 
 echo "=== 安装完成！访问 Cacti ==="
