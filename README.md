@@ -1,3 +1,10 @@
+#Cacti一键安装脚本
+'''
+curl -sL https://raw.githubusercontent.com/bi4nbn/zabbix/refs/heads/main/cacti/install.sh | bash
+'''
+
+
+
 # Zabbix Docker Compose 完整配置
 ai生成的文档 懒得编辑 看懂的拿走
 ## docker-compose.yml
