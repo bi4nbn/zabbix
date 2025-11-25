@@ -11,7 +11,7 @@ elif docker compose version &> /dev/null; then
 else
     echo "Docker Compose 未安装，正在安装 docker-compose-plugin..."
     apt update
-    apt install -y docker-compose-plugin
+    apt install -y docker-compose
     if docker compose version &> /dev/null; then
         COMPOSE_CMD="docker compose"
     else
