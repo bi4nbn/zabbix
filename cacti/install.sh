@@ -143,7 +143,7 @@ sleep 10
 # 7️⃣ 安装中文字体
 # ===============================
 echo "=== 安装中文字体 ==="
-docker exec -it cacti bash -c "apt update && apt install -y fonts-wqy-microhei fonts-dejavu-core && fc-cache -fv"
+docker exec cacti bash -c "apt update && apt install -y fonts-wqy-microhei fonts-dejavu-core && fc-cache -fv"
 
 # ===============================
 # 8️⃣ 输出访问 IP
