@@ -5,7 +5,7 @@
 		<test_source></test_source>
 		<graph>
 			<t_title>on</t_title>
-			<title>|host_description|-|query_ifName|</title>
+			<title>|host_description| - 接口|query_ifName| 流量</title>
 			<t_vertical_label></t_vertical_label>
 			<vertical_label>bits per second</vertical_label>
 			<t_image_format_id></t_image_format_id>
