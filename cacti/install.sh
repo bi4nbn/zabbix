@@ -80,9 +80,19 @@ pre_check() {
     sleep 3
 }
 
-# 步骤0：设置系统时区 + 配置阿里NTP同步时间
+# 步骤1：系统全量更新
+system_update() {
+    blue "=== 步骤1：系统全量更新 ==="
+    if ! dnf update -y; then
+        red "❌ 系统更新失败！请手动执行 dnf update -y 后重试"
+        exit 1
+    fi
+    green "✅ 系统更新完成"
+}
+
+# 步骤2：设置系统时区 + 配置阿里NTP同步时间
 time_sync_config() {
-    blue "=== 步骤0：系统时区设置 + 阿里NTP时间同步 ==="
+    blue "=== 步骤2：系统时区设置 + 阿里NTP时间同步 ==="
     
     # 1. 强制设置系统时区为上海
     if ! timedatectl set-timezone "$TIMEZONE"; then
@@ -132,19 +142,9 @@ time_sync_config() {
     fi
 }
 
-# 步骤1：系统全量更新
-system_update() {
-    blue "=== 步骤1：系统全量更新 ==="
-    if ! dnf update -y; then
-        red "❌ 系统更新失败！请手动执行 dnf update -y 后重试"
-        exit 1
-    fi
-    green "✅ 系统更新完成"
-}
-
-# 步骤2：基础系统配置（防火墙/SELinux/rc.local）
+# 步骤3：基础系统配置（防火墙/SELinux/rc.local）
 basic_config() {
-    blue "=== 步骤2：基础系统配置 ==="
+    blue "=== 步骤3：基础系统配置 ==="
     # 关闭防火墙
     systemctl stop firewalld && systemctl disable firewalld >/dev/null 2>&1
     green "✅ 防火墙（firewalld）已关闭并禁用，状态：$(systemctl is-active firewalld)"
@@ -166,14 +166,15 @@ basic_config() {
     fi
 }
 
-# 步骤3：配置EPEL + Remi仓库
+
+# 步骤4：配置EPEL + Remi仓库
 repo_config() {
     blue "=== 步骤3：配置EPEL + Remi仓库 ==="
-    if ! dnf install -y https://dl.fedoraproject.org/pub/epel/epel-release-latest-9.noarch.rpm; then
+    if ! dnf install -y https://mirrors.aliyun.com/epel/epel-release-latest-9.noarch.rpm; then
         red "❌ EPEL仓库安装失败！"
         exit 1
     fi
-    if ! dnf install -y https://rpms.remirepo.net/enterprise/remi-release-9.rpm; then
+    if ! dnf install -y https://mirrors.aliyun.com/remi/enterprise/remi-release-9.2.rpm; then
         red "❌ Remi仓库安装失败！"
         exit 1
     fi
@@ -181,9 +182,9 @@ repo_config() {
     green "✅ 仓库配置完成"
 }
 
-# 步骤4：安装并配置HTTPD
+# 步骤5：安装并配置HTTPD
 httpd_install() {
-    blue "=== 步骤4：安装HTTP服务 ==="
+    blue "=== 步骤5：安装HTTP服务 ==="
     if ! dnf install -y httpd; then
         red "❌ httpd安装失败！"
         exit 1
@@ -197,9 +198,9 @@ httpd_install() {
     fi
 }
 
-# 步骤5：安装并配置PHP 8.3
+# 步骤6：安装并配置PHP 8.3
 php_config() {
-    blue "=== 步骤5：安装PHP 8.3并配置 ==="
+    blue "=== 步骤6：安装PHP 8.3并配置 ==="
     if ! dnf module reset php -y; then red "❌ PHP模块重置失败！"; exit 1; fi
     if ! dnf module enable php:remi-8.3 -y; then red "❌ 启用PHP 8.3失败！"; exit 1; fi
     if ! dnf install -y php php-xml php-session php-sockets php-ldap php-gd php-json \
@@ -208,7 +209,7 @@ php_config() {
         exit 1
     fi
 
-    green "✅ 开始修改PHP.ini配置..."
+    blue "=== 开始修改PHP.ini配置..."
     sed -i '/^memory_limit/ c\memory_limit = 512M' /etc/php.ini
     sed -i '/^max_execution_time/ c\max_execution_time = 60' /etc/php.ini
     sed -i '/;*date.timezone/d' /etc/php.ini
@@ -228,9 +229,9 @@ php_config() {
     green "✅ PHP 8.3安装完成，版本：$(php -v | head -n1 | awk '{print $2}')"
 }
 
-# 步骤6：安装SNMP + rrdtool
+# 步骤7：安装SNMP + rrdtool
 snmp_install() {
-    blue "=== 步骤6：安装SNMP/rrdtool ==="
+    blue "=== 步骤7：安装SNMP/rrdtool ==="
     if ! dnf install -y net-snmp net-snmp-utils net-snmp-libs rrdtool; then
         red "❌ SNMP/rrdtool安装失败！"
         exit 1
@@ -244,42 +245,57 @@ snmp_install() {
     fi
 }
 
-# 步骤7：安装并配置MariaDB（最终平衡优化版）
+# 步骤8：安装并配置MariaDB（智能适应内存大小的最终版）
 mariadb_config() {
-    blue "=== 步骤7：安装并配置MariaDB（最终平衡优化版） ==="
+    blue "=== 步骤8：安装并配置MariaDB（智能适应内存大小的最终版） ==="
     if ! dnf install -y @mariadb; then red "❌ MariaDB安装失败！"; exit 1; fi
 
     TOTAL_MEM_MB=$(free -m | awk '/^Mem:/ {print $2}')
     if [ -z "$TOTAL_MEM_MB" ] || [ "$TOTAL_MEM_MB" -lt 1024 ]; then
-        red "❌ 无法检测到有效内存大小，或内存小于1GB。对于Cacti生产环境，建议至少4GB内存。"
+        red "❌ 错误：检测到内存小于1GB。Cacti + Spine 无法在如此低的内存下稳定运行，建议至少4GB内存。"
         exit 1
     fi
     green "✅ 检测到服务器总内存：${TOTAL_MEM_MB}MB"
 
-    # --- 【最终策略】采用更平衡的内存分配方案 ---
-    # innodb_buffer_pool_size: 总内存的 50%，为系统和连接预留足够空间
-    INNODB_BUFFER_POOL_MB=$((TOTAL_MEM_MB * 50 / 100))
-    # 设置一个合理的下限 (例如总内存的25%，但不低于512M)
-    MIN_BUFFER_POOL=$((TOTAL_MEM_MB * 25 / 100))
-    [ "$MIN_BUFFER_POOL" -lt 512 ] && MIN_BUFFER_POOL=512
-    [ "$INNODB_BUFFER_POOL_MB" -lt "$MIN_BUFFER_POOL" ] && INNODB_BUFFER_POOL_MB="$MIN_BUFFER_POOL"
+    # --- 【智能策略】根据总内存大小，自动选择最佳的分配方案 ---
+    INNODB_BUFFER_POOL_MB=0
+    HEAP_TMP_TABLE_MB=0
 
-    # max_heap_table_size / tmp_table_size: 总内存的 10%
-    HEAP_TMP_TABLE_MB=$((TOTAL_MEM_MB * 10 / 100))
-    # 设置合理的上下限
+    if [ "$TOTAL_MEM_MB" -lt 2048 ]; then
+        # 策略A：内存 < 2GB (极小内存，能跑就行)
+        yellow "⚠️  检测到极小内存环境 (<2GB)，将采用最保守的生存策略。"
+        INNODB_BUFFER_POOL_MB=$((TOTAL_MEM_MB * 40 / 100))
+        HEAP_TMP_TABLE_MB=$((TOTAL_MEM_MB * 5 / 100))
+    elif [ "$TOTAL_MEM_MB" -lt 4096 ]; then
+        # 策略B：内存 2GB - 4GB (小内存，优先稳定)
+        yellow "⚠️  检测到小内存环境 (2GB-4GB)，将采用稳定优先的策略。"
+        INNODB_BUFFER_POOL_MB=$((TOTAL_MEM_MB * 45 / 100))
+        HEAP_TMP_TABLE_MB=$((TOTAL_MEM_MB * 8 / 100))
+    else
+        # 策略C：内存 >= 4GB (标准内存，平衡策略)
+        green "✅ 检测到标准内存环境 (>=4GB)，将采用平衡优化策略。"
+        INNODB_BUFFER_POOL_MB=$((TOTAL_MEM_MB * 50 / 100))
+        HEAP_TMP_TABLE_MB=$((TOTAL_MEM_MB * 10 / 100))
+    fi
+
+    # --- 为计算出的值设置合理的上下限 ---
+    # innodb_buffer_pool_size 最小为 256MB
+    [ "$INNODB_BUFFER_POOL_MB" -lt 256 ] && INNODB_BUFFER_POOL_MB=256
+    # max_heap_table_size 最小为 64MB，最大为 512MB (在小内存机器上，上限要低)
     [ "$HEAP_TMP_TABLE_MB" -lt 64 ] && HEAP_TMP_TABLE_MB=64
-    [ "$HEAP_TMP_TABLE_MB" -gt 2048 ] && HEAP_TMP_TABLE_MB=2048
+    [ "$HEAP_TMP_TABLE_MB" -gt 512 ] && HEAP_TMP_TABLE_MB=512
     
     # 保持安全的默认值
     JOIN_BUFFER_SIZE="256K"
     SORT_BUFFER_SIZE="256K"
 
-    green "✅ 动态计算出数据库优化参数（平衡策略）："
-    echo "   - innodb_buffer_pool_size = ${INNODB_BUFFER_POOL_MB}M (总内存的50%)"
-    echo "   - max_heap_table_size     = ${HEAP_TMP_TABLE_MB}M (总内存的10%)"
+    green "✅ 动态计算出数据库优化参数："
+    echo "   - innodb_buffer_pool_size = ${INNODB_BUFFER_POOL_MB}M"
+    echo "   - max_heap_table_size     = ${HEAP_TMP_TABLE_MB}M"
     echo "   - join_buffer_size        = ${JOIN_BUFFER_SIZE}"
     echo "   - sort_buffer_size        = ${SORT_BUFFER_SIZE}"
 
+    # --- 后续配置与之前版本相同 ---
     cp /etc/my.cnf /etc/my.cnf.bak 2>/dev/null
     cat > /etc/my.cnf << EOF
 [mysqld]
@@ -303,10 +319,10 @@ innodb_doublewrite = OFF
 innodb_use_atomic_writes = ON
 innodb_flush_method = O_DIRECT
 innodb_lock_wait_timeout = 50
-innodb_log_file_size = 256M
-innodb_log_buffer_size = 64M
-innodb_read_io_threads = 8
-innodb_write_io_threads = 8
+innodb_log_file_size = 128M
+innodb_log_buffer_size = 32M
+innodb_read_io_threads = 4
+innodb_write_io_threads = 4
 EOF
 
     if [ "$SET_MYSQL_TIMEZONE" = "yes" ]; then
@@ -337,9 +353,9 @@ EOF
     green "✅ MariaDB安装并配置完成！"
 }
 
-# 步骤8：创建Cacti数据库
+# 步骤9：创建Cacti数据库
 cacti_db_create() {
-    blue "=== 步骤8：创建Cacti数据库 ==="
+    blue "=== 步骤9：创建Cacti数据库 ==="
     if ! mysql -u root -p"$DB_ROOT_PASS" -e "
 CREATE DATABASE IF NOT EXISTS cacti DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 CREATE USER IF NOT EXISTS 'cactiuser'@'localhost' IDENTIFIED BY '$CACTI_DB_PASS';
@@ -353,9 +369,9 @@ FLUSH PRIVILEGES;
     green "✅ Cacti数据库创建完成（用户：cactiuser，密码：$CACTI_DB_PASS）"
 }
 
-# 步骤9：安装Cacti + Spine
+# 步骤10：安装Cacti + Spine
 cacti_install() {
-    blue "=== 步骤9：安装Cacti + Spine ==="
+    blue "=== 步骤10：安装Cacti + Spine ==="
     if ! dnf install -y cacti cacti-spine; then
         red "❌ Cacti/Spine安装失败！"
         exit 1
@@ -367,9 +383,9 @@ cacti_install() {
     green "✅ Cacti + Spine安装完成"
 }
 
-# 步骤10：配置Cacti/Spine数据库连接
+# 步骤11：配置Cacti/Spine数据库连接
 cacti_db_config() {
-    blue "=== 步骤10：配置Cacti/Spine数据库连接 ==="
+    blue "=== 步骤11：配置Cacti/Spine数据库连接 ==="
     sed -i \
         -e "s/\$database_password = '';/\$database_password = '$CACTI_DB_PASS';/g" \
         -e "s/\$database_username = 'cactiuser';/\$database_username = 'cactiuser';/g" \
@@ -384,9 +400,9 @@ cacti_db_config() {
     green "✅ Cacti/Spine数据库连接配置完成"
 }
 
-# 步骤11：配置HTTPD + Cron任务
+# 步骤12：配置HTTPD + Cron任务
 final_config() {
-    blue "=== 步骤11：最终系统配置 ==="
+    blue "=== 步骤12：最终系统配置 ==="
     sed -i "s/Require host localhost/Require all granted/g" /etc/httpd/conf.d/cacti.conf
     systemctl restart httpd >/dev/null 2>&1
 
@@ -401,9 +417,9 @@ final_config() {
     green "✅ httpd和Cron任务配置完成"
 }
 
-# 步骤12：修复中文乱码
+# 步骤13：修复中文乱码
 font_config() {
-    blue "=== 步骤12：修复中文乱码 ==="
+    blue "=== 步骤13：修复中文乱码 ==="
     if ! dnf install -y fontconfig ttmkfdir; then red "❌ 字体依赖安装失败！"; exit 1; fi
     mkdir -p /usr/share/fonts/chinese >/dev/null 2>&1
     if ! cp $FONT_FILE /usr/share/fonts/chinese/; then red "❌ 字体文件复制失败！"; exit 1; fi
@@ -440,8 +456,8 @@ final_tips() {
 # 主执行流程
 main() {
     pre_check
-    time_sync_config
     system_update
+    time_sync_config
     basic_config
     repo_config
     httpd_install
