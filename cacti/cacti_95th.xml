@@ -311,16 +311,16 @@
 		</inputs>
 	</hash_0001031742b2066384637022d178cc5072905a>
 	<hash_0101036632e1e0b58a565c135d7ff90440c335>
-		<name>|host_description|-|query_ifName|→</name>
+		<name>|host_description|-|query_ifName|</name>
 		<ds>
 			<t_name>on</t_name>
 			<name>|host_description| - Traffic</name>
 			<data_source_path></data_source_path>
 			<data_input_id>hash_030103bf566c869ac6443b0c75d1c32b5a350e</data_input_id>
-			<t_data_source_profile_id></t_data_source_profile_id>
-			<data_source_profile_id>hash_200103c0dd0e46b9ca268e7ed4162d329f9215</data_source_profile_id>
+			<t_data_source_profile_id>on</t_data_source_profile_id>
+			<data_source_profile_id>hash_200103d62c52891f4f9688729a5bc9fad91b18</data_source_profile_id>
 			<t_rrd_step></t_rrd_step>
-			<rrd_step>30</rrd_step>
+			<rrd_step>300</rrd_step>
 			<t_active></t_active>
 			<active>on</active>
 		</ds>
@@ -335,7 +335,7 @@
 				<t_data_source_type_id></t_data_source_type_id>
 				<data_source_type_id>2</data_source_type_id>
 				<t_rrd_heartbeat></t_rrd_heartbeat>
-				<rrd_heartbeat>1200</rrd_heartbeat>
+				<rrd_heartbeat>600</rrd_heartbeat>
 				<t_data_input_field_id></t_data_input_field_id>
 				<data_input_field_id>0</data_input_field_id>
 			</hash_0801032df25c57022b0c7e7d0be4c035ada1a0>
@@ -349,87 +349,72 @@
 				<t_data_source_type_id></t_data_source_type_id>
 				<data_source_type_id>2</data_source_type_id>
 				<t_rrd_heartbeat></t_rrd_heartbeat>
-				<rrd_heartbeat>1200</rrd_heartbeat>
+				<rrd_heartbeat>600</rrd_heartbeat>
 				<t_data_input_field_id></t_data_input_field_id>
 				<data_input_field_id>0</data_input_field_id>
 			</hash_080103721c0794526d1ac1c359f27dc56faa49>
 		</items>
 		<data>
 			<item_000>
-				<data_input_field_id>hash_07010392f5906c8dc0f964b41f4253df582c38</data_input_field_id>
+				<data_input_field_id>hash_070103617cdc8a230615e59f06f361ef6e7728</data_input_field_id>
 				<t_value></t_value>
 				<value></value>
 			</item_000>
 			<item_001>
-				<data_input_field_id>hash_07010332285d5bf16e56c478f5e83f32cda9ef</data_input_field_id>
+				<data_input_field_id>hash_070103acb449d1451e8a2a655c2c99d31142c7</data_input_field_id>
 				<t_value></t_value>
 				<value></value>
 			</item_001>
 			<item_002>
-				<data_input_field_id>hash_070103ad14ac90641aed388139f6ba86a2e48b</data_input_field_id>
+				<data_input_field_id>hash_070103f4facc5e2ca7ebee621f09bc6d9fc792</data_input_field_id>
 				<t_value></t_value>
 				<value></value>
 			</item_002>
 			<item_003>
-				<data_input_field_id>hash_070103617cdc8a230615e59f06f361ef6e7728</data_input_field_id>
+				<data_input_field_id>hash_0701031cc1493a6781af2c478fa4de971531cf</data_input_field_id>
 				<t_value></t_value>
 				<value></value>
 			</item_003>
 			<item_004>
-				<data_input_field_id>hash_070103acb449d1451e8a2a655c2c99d31142c7</data_input_field_id>
+				<data_input_field_id>hash_070103b5c23f246559df38662c255f4aa21d6b</data_input_field_id>
 				<t_value></t_value>
 				<value></value>
 			</item_004>
 			<item_005>
-				<data_input_field_id>hash_070103f4facc5e2ca7ebee621f09bc6d9fc792</data_input_field_id>
-				<t_value></t_value>
-				<value></value>
-			</item_005>
-			<item_006>
-				<data_input_field_id>hash_0701031cc1493a6781af2c478fa4de971531cf</data_input_field_id>
-				<t_value></t_value>
-				<value></value>
-			</item_006>
-			<item_007>
-				<data_input_field_id>hash_070103b5c23f246559df38662c255f4aa21d6b</data_input_field_id>
-				<t_value></t_value>
-				<value></value>
-			</item_007>
-			<item_008>
 				<data_input_field_id>hash_0701036027a919c7c7731fbe095b6f53ab127b</data_input_field_id>
 				<t_value>on</t_value>
 				<value></value>
-			</item_008>
-			<item_009>
+			</item_005>
+			<item_006>
 				<data_input_field_id>hash_070103cbbe5c1ddfb264a6e5d509ce1c78c95f</data_input_field_id>
 				<t_value>on</t_value>
 				<value></value>
-			</item_009>
-			<item_010>
+			</item_006>
+			<item_007>
 				<data_input_field_id>hash_070103e6deda7be0f391399c5130e7c4a48b28</data_input_field_id>
 				<t_value>on</t_value>
 				<value></value>
-			</item_010>
-			<item_011>
+			</item_007>
+			<item_008>
 				<data_input_field_id>hash_070103c1f36ee60c3dc98945556d57f26e475b</data_input_field_id>
 				<t_value></t_value>
 				<value></value>
-			</item_011>
-			<item_012>
+			</item_008>
+			<item_009>
 				<data_input_field_id>hash_0701032cf7129ad3ff819a7a7ac189bee48ce8</data_input_field_id>
 				<t_value></t_value>
 				<value></value>
-			</item_012>
-			<item_013>
+			</item_009>
+			<item_010>
 				<data_input_field_id>hash_0701036b13ac0a0194e171d241d4b06f913158</data_input_field_id>
 				<t_value></t_value>
 				<value></value>
-			</item_013>
-			<item_014>
+			</item_010>
+			<item_011>
 				<data_input_field_id>hash_0701033a33d4fc65b8329ab2ac46a36da26b72</data_input_field_id>
 				<t_value></t_value>
 				<value></value>
-			</item_014>
+			</item_011>
 		</data>
 	</hash_0101036632e1e0b58a565c135d7ff90440c335>
 	<hash_030103bf566c869ac6443b0c75d1c32b5a350e>
@@ -547,40 +532,40 @@
 			</hash_0701033a33d4fc65b8329ab2ac46a36da26b72>
 		</fields>
 	</hash_030103bf566c869ac6443b0c75d1c32b5a350e>
-	<hash_200103c0dd0e46b9ca268e7ed4162d329f9215>
-		<name>30 Second Collection</name>
-		<step>30</step>
-		<heartbeat>1200</heartbeat>
+	<hash_200103d62c52891f4f9688729a5bc9fad91b18>
+		<name>5 Minute Collection</name>
+		<step>300</step>
+		<heartbeat>600</heartbeat>
 		<x_files_factor>0.5</x_files_factor>
-		<default>on</default>
+		<default></default>
 		<cf_items>1|2|3|4</cf_items>
 		<items>
 			<item_000>
-				<name>Daily (30 Second Average)</name>
+				<name>Daily (5 Minute Average)</name>
 				<steps>1</steps>
-				<rows>2900</rows>
+				<rows>600</rows>
 				<timespan>86400</timespan>
 			</item_000>
 			<item_001>
-				<name>Weekly (15 Minute Average)</name>
-				<steps>30</steps>
-				<rows>1346</rows>
+				<name>Weekly (30 Minute Average)</name>
+				<steps>6</steps>
+				<rows>700</rows>
 				<timespan>604800</timespan>
 			</item_001>
 			<item_002>
-				<name>Monthly (1 Hour Average)</name>
-				<steps>120</steps>
-				<rows>1445</rows>
+				<name>Monthly (2 Hour Average)</name>
+				<steps>24</steps>
+				<rows>775</rows>
 				<timespan>2618784</timespan>
 			</item_002>
 			<item_003>
-				<name>Yearly (4 Hour Average)</name>
-				<steps>480</steps>
-				<rows>4380</rows>
+				<name>Yearly (1 Day Average)</name>
+				<steps>288</steps>
+				<rows>797</rows>
 				<timespan>31536000</timespan>
 			</item_003>
 		</items>
-	</hash_200103c0dd0e46b9ca268e7ed4162d329f9215>
+	</hash_200103d62c52891f4f9688729a5bc9fad91b18>
 	<hash_05010373f95f8b77b5508157d64047342c421e>
 		<name>Turn Bytes into Bits</name>
 		<items>
