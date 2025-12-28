@@ -1,4 +1,4 @@
-# Cacti一键安装脚本
+# AlmaLinux 9.7-Cacti一键安装脚本
 
 
 ```
