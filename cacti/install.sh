@@ -1,6 +1,7 @@
 #!/bin/bash
 ##############################################################################
-# Cacti + Spine 一键安装脚本（AlmaLinux 9.x 专用）
+# Cacti + Spine 一键安装脚本 (AlmaLinux 9.x 专用 - 最终优化版)
+# 功能: 集成系统优化、动态数据库配置、时间同步、中文乱码修复等。
 ##############################################################################
 
 # ======================== 配置项（仅需修改此处）========================
@@ -79,7 +80,7 @@ pre_check() {
     sleep 3
 }
 
-# 新增：设置系统时区 + 配置阿里NTP同步时间
+# 步骤0：设置系统时区 + 配置阿里NTP同步时间
 time_sync_config() {
     blue "=== 步骤0：系统时区设置 + 阿里NTP时间同步 ==="
     
@@ -90,21 +91,20 @@ time_sync_config() {
     fi
     green "✅ 系统时区已强制设置为：$TIMEZONE（$(timedatectl | grep "Time zone" | awk -F': ' '{print $2}')）"
 
-    # 2. 安装chrony（AlmaLinux 9默认时间同步工具，替代ntp）
+    # 2. 安装chrony
     if ! dnf install -y chrony >/dev/null 2>&1; then
-        red "❌ chrony安装失败！请手动安装：dnf install -y chrony"
+        red "❌ chrony安装失败！"
         exit 1
     fi
 
     # 3. 备份原有chrony配置
     cp /etc/chrony.conf /etc/chrony.conf.bak 2>/dev/null
 
-    # 4. 配置阿里NTP服务器（清空原有server配置，新增阿里服务器）
-    sed -i '/^server/d' /etc/chrony.conf  # 删除原有server行
+    # 4. 配置阿里NTP服务器
+    sed -i '/^server/d' /etc/chrony.conf
     for ntp_server in "${ALI_NTP_SERVERS[@]}"; do
         echo "server $ntp_server iburst" >> /etc/chrony.conf
     done
-    # 保留本地同步（防止NTP服务器不可用时时间漂移）
     echo "local stratum 10" >> /etc/chrony.conf
 
     # 5. 重启chronyd服务并设置开机自启
@@ -115,7 +115,7 @@ time_sync_config() {
     fi
     green "✅ chronyd服务已启动，NTP服务器配置为：${ALI_NTP_SERVERS[*]}"
 
-    # 6. 强制同步时间（等待5秒确保同步完成）
+    # 6. 强制同步时间
     if ! chronyc -a makestep >/dev/null 2>&1; then
         yellow "⚠️  时间同步警告：首次同步可能延迟，已重试..."
         sleep 5
@@ -139,7 +139,7 @@ system_update() {
         red "❌ 系统更新失败！请手动执行 dnf update -y 后重试"
         exit 1
     fi
-    green "✅ 系统更新完成（仅执行 dnf update -y）"
+    green "✅ 系统更新完成"
 }
 
 # 步骤2：基础系统配置（防火墙/SELinux/rc.local）
@@ -160,26 +160,23 @@ basic_config() {
         exit 1
     fi
     if ls -l /etc/rc.d/rc.local | grep -q 'x'; then
-        green "✅ /etc/rc.d/rc.local 已添加可执行权限，权限：$(ls -l /etc/rc.d/rc.local | awk '{print $1}')"
+        green "✅ /etc/rc.d/rc.local 已添加可执行权限"
     else
         yellow "⚠️  rc.local权限设置警告，请手动执行：chmod +x /etc/rc.d/rc.local"
     fi
 }
 
-# 步骤3：配置仓库（EPEL + Remi）
+# 步骤3：配置EPEL + Remi仓库
 repo_config() {
     blue "=== 步骤3：配置EPEL + Remi仓库 ==="
-    # 安装EPEL
     if ! dnf install -y https://dl.fedoraproject.org/pub/epel/epel-release-latest-9.noarch.rpm; then
         red "❌ EPEL仓库安装失败！"
         exit 1
     fi
-    # 安装Remi
     if ! dnf install -y https://rpms.remirepo.net/enterprise/remi-release-9.rpm; then
         red "❌ Remi仓库安装失败！"
         exit 1
     fi
-    # 刷新缓存
     dnf clean all && dnf makecache -y >/dev/null 2>&1
     green "✅ 仓库配置完成"
 }
@@ -200,49 +197,33 @@ httpd_install() {
     fi
 }
 
-# 步骤5：安装并配置PHP 8.3（满足Cacti官方要求）
+# 步骤5：安装并配置PHP 8.3
 php_config() {
     blue "=== 步骤5：安装PHP 8.3并配置 ==="
-    # 重置PHP模块
-    if ! dnf module reset php -y; then
-        red "❌ PHP模块重置失败！"
-        exit 1
-    fi
-    # 启用PHP 8.3
-    if ! dnf module enable php:remi-8.3 -y; then
-        red "❌ 启用PHP 8.3失败！"
-        exit 1
-    fi
-    # 安装PHP及依赖
+    if ! dnf module reset php -y; then red "❌ PHP模块重置失败！"; exit 1; fi
+    if ! dnf module enable php:remi-8.3 -y; then red "❌ 启用PHP 8.3失败！"; exit 1; fi
     if ! dnf install -y php php-xml php-session php-sockets php-ldap php-gd php-json \
         php-mysqlnd php-gmp php-mbstring php-posix php-snmp php-intl php-cli; then
         red "❌ PHP 8.3安装失败！"
         exit 1
     fi
 
-    # 精准修改PHP配置
     green "✅ 开始修改PHP.ini配置..."
-    # memory_limit = 512M
     sed -i '/^memory_limit/ c\memory_limit = 512M' /etc/php.ini
-    # max_execution_time = 60
     sed -i '/^max_execution_time/ c\max_execution_time = 60' /etc/php.ini
-    # 时区配置（100%生效）
     sed -i '/;*date.timezone/d' /etc/php.ini
     echo 'date.timezone = "Asia/Shanghai"' >> /etc/php.ini
 
-    # 验证PHP配置
     blue "=== 验证PHP配置 ==="
     grep -E 'memory_limit|max_execution_time|date.timezone' /etc/php.ini | grep -v ';'
-    # 验证CLI时区
     PHP_TIMEZONE=$(php -r 'echo date_default_timezone_get()."\n";')
     if [ "$PHP_TIMEZONE" = "Asia/Shanghai" ]; then
         green "✅ PHP时区已成功设置为：$PHP_TIMEZONE"
     else
-        red "❌ PHP时区设置失败，当前为：$PHP_TIMEZONE，请手动修复！"
+        red "❌ PHP时区设置失败，当前为：$PHP_TIMEZONE"
         exit 1
     fi
 
-    # 重启httpd
     systemctl restart httpd >/dev/null 2>&1
     green "✅ PHP 8.3安装完成，版本：$(php -v | head -n1 | awk '{print $2}')"
 }
@@ -263,66 +244,97 @@ snmp_install() {
     fi
 }
 
-# 步骤7：安装并配置MariaDB
+# 步骤7：安装并配置MariaDB（最终平衡优化版）
 mariadb_config() {
-    blue "=== 步骤7：安装并配置MariaDB ==="
-    # 安装MariaDB
-    if ! dnf install -y @mariadb; then
-        red "❌ MariaDB安装失败！"
+    blue "=== 步骤7：安装并配置MariaDB（最终平衡优化版） ==="
+    if ! dnf install -y @mariadb; then red "❌ MariaDB安装失败！"; exit 1; fi
+
+    TOTAL_MEM_MB=$(free -m | awk '/^Mem:/ {print $2}')
+    if [ -z "$TOTAL_MEM_MB" ] || [ "$TOTAL_MEM_MB" -lt 1024 ]; then
+        red "❌ 无法检测到有效内存大小，或内存小于1GB。对于Cacti生产环境，建议至少4GB内存。"
         exit 1
     fi
+    green "✅ 检测到服务器总内存：${TOTAL_MEM_MB}MB"
 
-    # 配置my.cnf
+    # --- 【最终策略】采用更平衡的内存分配方案 ---
+    # innodb_buffer_pool_size: 总内存的 50%，为系统和连接预留足够空间
+    INNODB_BUFFER_POOL_MB=$((TOTAL_MEM_MB * 50 / 100))
+    # 设置一个合理的下限 (例如总内存的25%，但不低于512M)
+    MIN_BUFFER_POOL=$((TOTAL_MEM_MB * 25 / 100))
+    [ "$MIN_BUFFER_POOL" -lt 512 ] && MIN_BUFFER_POOL=512
+    [ "$INNODB_BUFFER_POOL_MB" -lt "$MIN_BUFFER_POOL" ] && INNODB_BUFFER_POOL_MB="$MIN_BUFFER_POOL"
+
+    # max_heap_table_size / tmp_table_size: 总内存的 10%
+    HEAP_TMP_TABLE_MB=$((TOTAL_MEM_MB * 10 / 100))
+    # 设置合理的上下限
+    [ "$HEAP_TMP_TABLE_MB" -lt 64 ] && HEAP_TMP_TABLE_MB=64
+    [ "$HEAP_TMP_TABLE_MB" -gt 2048 ] && HEAP_TMP_TABLE_MB=2048
+    
+    # 保持安全的默认值
+    JOIN_BUFFER_SIZE="256K"
+    SORT_BUFFER_SIZE="256K"
+
+    green "✅ 动态计算出数据库优化参数（平衡策略）："
+    echo "   - innodb_buffer_pool_size = ${INNODB_BUFFER_POOL_MB}M (总内存的50%)"
+    echo "   - max_heap_table_size     = ${HEAP_TMP_TABLE_MB}M (总内存的10%)"
+    echo "   - join_buffer_size        = ${JOIN_BUFFER_SIZE}"
+    echo "   - sort_buffer_size        = ${SORT_BUFFER_SIZE}"
+
     cp /etc/my.cnf /etc/my.cnf.bak 2>/dev/null
     cat > /etc/my.cnf << EOF
 [mysqld]
 character-set-server = utf8mb4
 collation-server = utf8mb4_unicode_ci
+character-set-client-handshake = FALSE
+init_connect='SET NAMES utf8mb4'
+
 max_connections = 300
 max_allowed_packet = 64M
-tmp_table_size = 256M
-max_heap_table_size = 256M
-join_buffer_size = 8M
-sort_buffer_size = 2M
+
+tmp_table_size = ${HEAP_TMP_TABLE_MB}M
+max_heap_table_size = ${HEAP_TMP_TABLE_MB}M
+
+join_buffer_size = ${JOIN_BUFFER_SIZE}
+sort_buffer_size = ${SORT_BUFFER_SIZE}
+
 innodb_file_per_table = ON
-innodb_buffer_pool_size = 4G
+innodb_buffer_pool_size = ${INNODB_BUFFER_POOL_MB}M
 innodb_doublewrite = OFF
 innodb_use_atomic_writes = ON
 innodb_flush_method = O_DIRECT
 innodb_lock_wait_timeout = 50
+innodb_log_file_size = 256M
+innodb_log_buffer_size = 64M
+innodb_read_io_threads = 8
+innodb_write_io_threads = 8
 EOF
 
-    # 显式设置MySQL时区（可选）
     if [ "$SET_MYSQL_TIMEZONE" = "yes" ]; then
-        sed -i '/\[mysqld\]/a default-time-zone = "+08:00"' /etc/my.cnf
-        green "✅ 已显式设置MySQL时区为 +08:00"
+        echo "default-time-zone = \"+08:00\"" >> /etc/my.cnf
+        green "✅ 已显式设置MySQL全局时区为 '+08:00'"
     fi
 
-    # 启动MariaDB
     systemctl enable --now mariadb >/dev/null 2>&1
     if [ "$(systemctl is-active mariadb)" != "active" ]; then
-        red "❌ MariaDB启动失败！"
+        red "❌ MariaDB启动失败！请检查 /etc/my.cnf 配置是否有误。"
         exit 1
     fi
 
-    # 设置root密码
     if ! mysql -u root -e "ALTER USER 'root'@'localhost' IDENTIFIED BY '$DB_ROOT_PASS';"; then
         red "❌ MariaDB root密码设置失败！"
         exit 1
     fi
 
-    # 加载时区表
     if ! mysql_tzinfo_to_sql /usr/share/zoneinfo | mysql -u root -p"$DB_ROOT_PASS" mysql >/dev/null 2>&1; then
-        yellow "⚠️  MySQL时区表加载警告（不影响使用）"
+        yellow "⚠️  MySQL时区表加载警告"
     else
         green "✅ MySQL时区表加载完成"
     fi
 
-    # 验证MySQL时区
-    blue "=== 验证MariaDB时区 ==="
+    blue "=== 验证MariaDB配置 ==="
     MYSQL_TZ=$(mysql -u root -p"$DB_ROOT_PASS" -e "SELECT @@global.time_zone;" 2>/dev/null | grep -v '@@global.time_zone')
-    green "✅ MariaDB全局时区：$MYSQL_TZ（等价于Asia/Shanghai）"
-    green "✅ MariaDB安装完成"
+    green "✅ MariaDB全局时区：$MYSQL_TZ"
+    green "✅ MariaDB安装并配置完成！"
 }
 
 # 步骤8：创建Cacti数据库
@@ -348,7 +360,6 @@ cacti_install() {
         red "❌ Cacti/Spine安装失败！"
         exit 1
     fi
-    # 导入Cacti数据库
     if ! mysql -u cactiuser -p"$CACTI_DB_PASS" --default-character-set=utf8mb4 cacti < /usr/share/doc/cacti/cacti.sql >/dev/null 2>&1; then
         red "❌ Cacti数据库导入失败！"
         exit 1
@@ -359,14 +370,12 @@ cacti_install() {
 # 步骤10：配置Cacti/Spine数据库连接
 cacti_db_config() {
     blue "=== 步骤10：配置Cacti/Spine数据库连接 ==="
-    # 配置Cacti主配置
     sed -i \
         -e "s/\$database_password = '';/\$database_password = '$CACTI_DB_PASS';/g" \
         -e "s/\$database_username = 'cactiuser';/\$database_username = 'cactiuser';/g" \
         -e "s/\$database_default = 'cacti';/\$database_default = 'cacti';/g" \
         /usr/share/cacti/include/config.php
 
-    # 配置Spine
     cp /etc/spine.conf /etc/spine.conf.bak 2>/dev/null
     sed -i \
         -e "s/DB_Pass=/DB_Pass=$CACTI_DB_PASS/g" \
@@ -378,19 +387,16 @@ cacti_db_config() {
 # 步骤11：配置HTTPD + Cron任务
 final_config() {
     blue "=== 步骤11：最终系统配置 ==="
-    # 允许外部访问Cacti
     sed -i "s/Require host localhost/Require all granted/g" /etc/httpd/conf.d/cacti.conf
     systemctl restart httpd >/dev/null 2>&1
 
-    # 修复Cron任务注释（宽松匹配）
     sed -i '/^#\*\/5 \* \* \* \*.*apache.*poller.php/ s/^#//' /etc/cron.d/cacti
 
-    # 验证Cron任务
     blue "=== 验证Cacti定时任务 ==="
     if grep -E '^\*\/5 \* \* \* \*.*apache.*poller.php' /etc/cron.d/cacti >/dev/null 2>&1; then
         green "✅ Cron任务已取消注释，每5分钟自动采集数据"
     else
-        yellow "⚠️  Cron任务修改警告，请手动执行：sed -i '/^#\*\/5 \* \* \* \*.*apache.*poller.php/ s/^#//' /etc/cron.d/cacti"
+        yellow "⚠️  Cron任务修改警告，请手动检查：/etc/cron.d/cacti"
     fi
     green "✅ httpd和Cron任务配置完成"
 }
@@ -398,22 +404,11 @@ final_config() {
 # 步骤12：修复中文乱码
 font_config() {
     blue "=== 步骤12：修复中文乱码 ==="
-    # 安装字体依赖
-    if ! dnf install -y fontconfig ttmkfdir; then
-        red "❌ 字体依赖安装失败！"
-        exit 1
-    fi
-    # 创建字体目录
+    if ! dnf install -y fontconfig ttmkfdir; then red "❌ 字体依赖安装失败！"; exit 1; fi
     mkdir -p /usr/share/fonts/chinese >/dev/null 2>&1
-    # 复制字体文件
-    if ! cp $FONT_FILE /usr/share/fonts/chinese/; then
-        red "❌ 字体文件复制失败！"
-        exit 1
-    fi
-    # 更新字体缓存
+    if ! cp $FONT_FILE /usr/share/fonts/chinese/; then red "❌ 字体文件复制失败！"; exit 1; fi
     ttmkfdir -e /usr/share/X11/fonts/encodings/encodings.dir >/dev/null 2>&1
     fc-cache -fv >/dev/null 2>&1
-    # 验证
     if fc-list | grep "DejaVuSans" >/dev/null 2>&1; then
         green "✅ 中文乱码修复完成"
     else
@@ -433,7 +428,6 @@ final_tips() {
     echo "   - MariaDB root密码：$DB_ROOT_PASS"
     echo "   - Cacti数据库用户：cactiuser"
     echo "   - Cacti数据库密码：$CACTI_DB_PASS"
-    echo "   - Cacti数据库名：cacti"
     echo "4. 时间/时区验证："
     echo "   - 系统时区：$(timedatectl | grep "Time zone" | awk -F': ' '{print $2}')"
     echo "   - 系统时间：$(date "+%Y-%m-%d %H:%M:%S %Z")（阿里NTP同步）"
@@ -443,7 +437,7 @@ final_tips() {
     blue "=================================================="
 }
 
-# 主执行流程（新增时间同步步骤）
+# 主执行流程
 main() {
     pre_check
     time_sync_config
