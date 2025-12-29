@@ -18,7 +18,7 @@
 # ⚠️  安全警告:
 #   - 脚本包含数据库密码明文，且执行 root 权限操作。
 #   - 请严格限制此脚本的访问权限。
-#   - 建议权限: chmod 700 cacti_tool.sh
+#   - 建议权限: chmod 700 cacti.sh
 ##############################################################################
 
 # ======================== 【配置区】 ========================
@@ -29,7 +29,7 @@ DB_SERVICE="mariadb"
 BACKUP_DIR="/backup/cacti"
 LOG_FILE="${BACKUP_DIR}/cacti_backup_restore.log"
 SCRIPT_URL="https://raw.githubusercontent.com/bi4nbn/zabbix/refs/heads/main/cacti/cacti.sh"
-SCRIPT_VERSION="0.15" 
+SCRIPT_VERSION="0.16" # <-- 版本号已更新
 # =================================================================
 
 # --- 颜色和日志函数 ---
@@ -109,8 +109,7 @@ install_cacti() {
     
     read -p "是否继续安装? (y/N): " confirm
     if [[ "$confirm" =~ ^[Yy]$ ]]; then
-        log "===== 开始执行 Cacti 安装脚本 ====="
-        if curl -sL https://raw.githubusercontent.com/bi4nbn/zabbix/refs/heads/main/cacti/install.sh | bash; then
+        if curl -sSL https://raw.githubusercontent.com/bi4nbn/zabbix/refs/heads/main/cacti/install.sh | bash; then
             green "🎉 Cacti 安装脚本执行完毕！"
             log "Cacti 安装脚本执行成功。"
         else
@@ -257,7 +256,7 @@ perform_restore() {
 
     # 【核心逻辑】恢复数据库
     log "正在恢复数据库 '$DB_NAME'..."
-    if mysql -u"$DB_USER" -p"$DB_PASS" -e "DROP DATABASE IF EXISTS $DB_NAME; SOURCE ${temp_dir}/cacti_database.sql;" >> "$LOG_FILE" 2>&1; then
+    if mysql -u"$DB_USER" -p"$DB_PASS" -e "DROP DATABASE IF EXISTS $DB_NAME; CREATE DATABASE $DB_NAME; USE $DB_NAME; SOURCE ${temp_dir}/cacti_database.sql;" >> "$LOG_FILE" 2>&1; then
         log "数据库恢复成功。"
         
         log "正在恢复 RRD 数据文件..."
@@ -396,47 +395,21 @@ uninstall_cacti() {
     main_menu
 }
 
-# --- 功能5: 自动安装快捷方式 (最终修复版) ---
-install_alias() {
-    local script_dest="/usr/local/sbin/cacti-manager.sh"
-    local alias_dest="/usr/local/bin/cacti"
-
-    # 【核心改动】
-    # 检查快捷方式是否已经是一个独立的文件，而不是软链接
-    if [ -f "$alias_dest" ] && ! [ -L "$alias_dest" ]; then
-        log_quiet "快捷方式 'cacti' 已存在且是普通文件，跳过安装。"
-        return 0
-    fi
-
-    blue "=== 正在为脚本创建独立的启动文件... ==="
-    
-    # 【核心改动】
-    # 将当前运行的脚本内容直接复制到目标位置
-    if ! cp "$0" "$alias_dest"; then
-        red "❌ 创建独立启动文件 $alias_dest 失败！"
-        return 1
-    fi
-    
-    chmod 700 "$alias_dest"
-    green "✅ 独立启动文件安装成功！"
-    green "   现在您可以在任何目录下直接输入 'cacti' 来运行此管理脚本。"
-    log "独立启动文件 'cacti' 已成功安装。"
-}
-
-# --- 功能6: 静默更新 (最终、最可靠版) ---
+# --- 功能5: 静默更新 (最终、最可靠版) ---
 self_update() {
     clear
     cyan "=================================================="
     echo "              脚本静默更新"
     cyan "=================================================="
     
-    local script_path="/usr/local/sbin/cacti-manager.sh"
-    local alias_path="/usr/local/bin/cacti"
+    # 【核心改动】更新目标就是脚本自身
+    local target_script="/usr/local/bin/cacti"
 
     log "===== 开始执行脚本静默更新 ====="
     
+    # 添加时间戳参数以强制刷新 CDN 缓存
     local download_url="${SCRIPT_URL}?$(date +%s)"
-    echo "正在从 $SCRIPT_URL 下载最新版本..."
+    echo "正在从 $SCRIPT_URL 下载最新版本 (强制刷新缓存)..."
 
     local temp_file=$(mktemp)
     if ! curl -sSL "$download_url" -o "$temp_file"; then
@@ -459,33 +432,41 @@ self_update() {
         return
     fi
 
-    log "下载成功，正在替换脚本文件..."
+    log "下载成功，正在用新版本覆盖主程序..."
     
-    # 使用 cat 重定向，这是一个简单可靠的覆盖方式
-    cat "$temp_file" > "$script_path"
-    cat "$temp_file" > "$alias_path"
+    # 使用 cat 命令，将临时文件的内容覆盖到目标脚本文件
+    if ! cat "$temp_file" > "$target_script"; then
+        red "❌ 替换主程序文件 $target_script 失败！请检查权限。"
+        log "脚本更新失败：替换主程序文件失败。"
+        rm -f "$temp_file"
+        echo ""
+        read -n 1 -s -r -p "按任意键返回主菜单..."
+        main_menu
+        return
+    fi
+    
     rm -f "$temp_file"
 
-    chmod 700 "$script_path"
-    chmod 700 "$alias_path"
-    log "新脚本权限已设置为 700。"
+    # 确保主脚本有执行权限
+    chmod 700 "$target_script"
+    log "新程序权限已设置为 700。"
 
     clear
-    green "🎉 脚本已成功更新！"
-    log "脚本已成功更新到最新版本。"
+    green "🎉 程序已成功更新！"
+    log "程序已成功更新到最新版本。"
     
     echo ""
     bold "=================================================="
-    bold "  更新完成！请手动重启脚本。"
+    bold "  更新完成！请手动重启程序。"
     bold ""
     bold "  操作步骤："
-    bold "  1. 按任意键退出当前脚本。"
+    bold "  1. 按任意键退出当前程序。"
     bold "  2. 在终端中输入 'cacti' 并按回车。"
     bold "  3. 您将看到新版本的界面。"
     bold "=================================================="
     echo ""
 
-    # --- 核心改动：直接退出，不再尝试任何形式的自动重启 ---
+    # 更新完成，直接退出
     read -n 1 -s -r
     exit 0
 }
@@ -532,6 +513,39 @@ fi
 
 mkdir -p "$BACKUP_DIR"
 
-install_alias
+# 【核心改动】移除 install_alias 函数，改为自安装逻辑
+# 如果脚本不是从 /usr/local/bin/cacti 运行的，则提示用户安装
+if [ "$(readlink -f "$0")" != "/usr/local/bin/cacti" ]; then
+    clear
+    yellow "=================================================="
+    echo "           欢迎使用 Cacti 一站式管理工具箱"
+    yellow "=================================================="
+    echo ""
+    blue "检测到脚本未安装在标准路径。"
+    echo "为方便您以后使用，建议将其安装为 'cacti' 命令。"
+    echo ""
+    
+    read -p "是否自动安装到 /usr/local/bin/cacti? (Y/n): " confirm
+    if [[ "$confirm" =~ ^[Yy]$ ]] || [ -z "$confirm" ]; then
+        if cp "$0" /usr/local/bin/cacti; then
+            chmod 700 /usr/local/bin/cacti
+            green "✅ 脚本安装成功！"
+            echo ""
+            bold "=================================================="
+            bold "  您现在可以在任何目录下输入 'cacti' 来运行此脚本。"
+            bold "=================================================="
+            echo ""
+            log "脚本已自动安装到 /usr/local/bin/cacti。"
+        else
+            red "❌ 安装失败！请检查您是否有 /usr/local/bin 目录的写入权限。"
+            log "脚本自动安装失败。"
+        fi
+    else
+        log "用户取消了脚本的自动安装。"
+    fi
+    
+    echo ""
+    read -n 1 -s -r -p "按任意键继续..."
+fi
 
 main_menu
