@@ -1,7 +1,6 @@
 #!/bin/bash
 ##############################################################################
-# Cacti + Spine 一键安装脚本 (AlmaLinux 9.x 专用 - 最终优化版)
-# 功能: 集成系统优化、动态数据库配置、时间同步、中文乱码修复、Apache根目录重定向。
+# Cacti + Spine 一键安装脚本 (AlmaLinux 9.x 专用 )
 ##############################################################################
 
 # ======================== 配置项（仅需修改此处）========================
@@ -465,19 +464,14 @@ final_tips() {
     green "🎉 Cacti + Spine 一键安装完成（AlmaLinux 9 + PHP 8.3）"
     blue "=================================================="
     echo "核心访问/配置信息："
-    green "1. Cacti访问地址：http://$SERVER_IP/cacti"
-    green "   或直接访问：http://$SERVER_IP (已配置自动重定向)"
+    green "1. Cacti访问地址：http://$SERVER_IP
     green "2. Cacti初始账号：admin / admin（登录后必须修改密码）"
     echo "3. 数据库信息："
     echo "   - MariaDB root密码：$DB_ROOT_PASS"
     echo "   - Cacti数据库用户：cactiuser"
     echo "   - Cacti数据库密码：$CACTI_DB_PASS"
-    echo "4. 时间/时区验证："
-    echo "   - 系统时区：$(timedatectl | grep "Time zone" | awk -F': ' '{print $2}')"
     echo "   - 系统时间：$(date "+%Y-%m-%d %H:%M:%S %Z")（阿里NTP同步）"
-    echo "   - PHP时区：$(php -r 'echo date_default_timezone_get()."\n";')"
-    echo "   - MariaDB时区：$(mysql -u root -p"$DB_ROOT_PASS" -e "SELECT @@global.time_zone;" 2>/dev/null | grep -v '@@global.time_zone')"
-    green "5. 最后操作：登录Cacti后 → 配置 → 设置 → 轮询器 → 选择「Spine」"
+    green "4. 最后操作：登录Cacti后 → 配置 → 设置 → 轮询器 → 选择「Spine」"
     blue "=================================================="
 }
 
@@ -489,7 +483,7 @@ main() {
     basic_config
     repo_config
     httpd_install
-    httpd_redirect_config  # <--- 调用新增的重定向配置步骤
+    httpd_redirect_config
     php_config
     snmp_install
     mariadb_config
