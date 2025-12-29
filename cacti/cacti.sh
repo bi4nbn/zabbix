@@ -29,6 +29,7 @@ DB_SERVICE="mariadb"
 BACKUP_DIR="/backup/cacti"
 LOG_FILE="${BACKUP_DIR}/cacti_backup_restore.log"
 SCRIPT_URL="https://raw.githubusercontent.com/bi4nbn/zabbix/refs/heads/main/cacti/cacti.sh"
+SCRIPT_VERSION="0.2"
 # =================================================================
 
 # --- 颜色和日志函数 ---
@@ -509,7 +510,7 @@ self_update() {
 main_menu() {
     clear
     blue "=================================================="
-    green "           Cacti 一站式管理工具箱 Ver0.2"
+    green "           Cacti 一站式管理工具箱 v${SCRIPT_VERSION}"
     blue "=================================================="
     echo " (1) 安装 Cacti"
     echo " (2) 备份 Cacti "
