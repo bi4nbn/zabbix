@@ -231,7 +231,7 @@ php_config() {
     if ! dnf module reset php -y; then red "❌ PHP模块重置失败！"; exit 1; fi
     if ! dnf module enable php:remi-8.3 -y; then red "❌ 启用PHP 8.3失败！"; exit 1; fi
     if ! dnf install -y php php-xml php-session php-sockets php-ldap php-gd php-json \
-        php-mysqlnd php-gmp php-mbstring php-posix php-snmp php-intl php-cli; then
+        php-mysqlnd php-gmp php-mbstring php-posix php-rrd php-snmp php-intl php-cli; then
         red "❌ PHP 8.3安装失败！"
         exit 1
     fi
@@ -239,6 +239,7 @@ php_config() {
     blue "=== 开始修改PHP.ini配置..."
     sed -i '/^memory_limit/ c\memory_limit = 512M' /etc/php.ini
     sed -i '/^max_execution_time/ c\max_execution_time = 60' /etc/php.ini
+    sed -i '/;*date.timezone/d' /etc/php.ini
     echo 'date.timezone = "Asia/Shanghai"' >> /etc/php.ini
 
     blue "=== 验证PHP配置 ==="
