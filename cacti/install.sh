@@ -231,7 +231,7 @@ php_config() {
     if ! dnf module reset php -y; then red "❌ PHP模块重置失败！"; exit 1; fi
     if ! dnf module enable php:remi-8.3 -y; then red "❌ 启用PHP 8.3失败！"; exit 1; fi
     if ! dnf install -y php php-xml php-session php-sockets php-ldap php-gd php-json \
-        php-mysqlnd php-gmp php-mbstring php-posix php-pecl-rrd php-snmp php-intl php-cli; then
+        php-mysqlnd php-gmp php-mbstring php-posix php-pecl-rrd php-rrd php-snmp php-intl php-cli; then
         red "❌ PHP 8.3安装失败！"
         exit 1
     fi
