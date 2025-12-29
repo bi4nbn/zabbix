@@ -427,20 +427,20 @@ exec /usr/local/sbin/cacti-manager.sh "$@"'
     log "独立启动快捷方式 'cacti' 已成功安装。"
 }
 
-# --- 功能6: 静默更新 (CDN 缓存修复版) ---
+# --- 功能6: 静默更新 (最终修复版) ---
 self_update() {
     clear
     cyan "=================================================="
     echo "              脚本静默更新"
     cyan "=================================================="
     
+    # 明确指定两个需要更新的文件路径
     local script_path="/usr/local/sbin/cacti-manager.sh"
     local alias_path="/usr/local/bin/cacti"
 
     log "===== 开始执行脚本静默更新 ====="
     
-    # --- 核心改动：添加时间戳参数以强制刷新 CDN 缓存 ---
-    # $(date +%s) 会生成一个唯一的当前时间戳
+    # 添加时间戳参数以强制刷新 CDN 缓存，确保下载的是最新版
     local download_url="${SCRIPT_URL}?$(date +%s)"
     echo "正在从 $SCRIPT_URL 下载最新版本 (强制刷新缓存)..."
 
@@ -466,11 +466,14 @@ self_update() {
         return
     fi
 
-    log "下载成功，正在用新版本直接替换当前脚本..."
+    log "下载成功，正在用新版本替换两个脚本文件..."
+    # --- 核心改动：同时更新两个文件 ---
     cat "$temp_file" > "$script_path"
+    cat "$temp_file" > "$alias_path"
     rm -f "$temp_file"
 
     chmod 700 "$script_path"
+    chmod 700 "$alias_path"
     log "新脚本权限已设置为 700。"
 
     clear
