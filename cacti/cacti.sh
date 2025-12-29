@@ -427,24 +427,17 @@ install_alias() {
     log "快捷方式 'cacti' 已成功安装。"
 }
 
-# --- 功能6: 静默更新 (终极方案) ---
+# --- 功能6: 静默更新 (无缝重启最终版) ---
 self_update() {
     clear
     cyan "=================================================="
     echo "              脚本静默更新"
     cyan "=================================================="
     
-    local script_path="/usr/local/sbin/cacti-manager.sh"
+    # 使用 BASH_SOURCE[0] 来获取当前脚本的真实路径，这比写死路径更可靠
+    local script_path="${BASH_SOURCE[0]}"
+    # 快捷方式的路径，用于最后执行
     local alias_path="/usr/local/bin/cacti"
-
-    if [ ! -f "$script_path" ]; then
-        red "❌ 错误：未在 '$script_path' 找到已安装的脚本。"
-        yellow "请先通过快捷方式安装脚本。"
-        echo ""
-        read -n 1 -s -r -p "按任意键返回主菜单..."
-        main_menu
-        return
-    fi
 
     log "===== 开始执行脚本静默更新 ====="
     echo "正在从 $SCRIPT_URL 下载最新版本..."
@@ -453,7 +446,8 @@ self_update() {
     temp_file=$(mktemp)
 
     if ! curl -sSL "$SCRIPT_URL" -o "$temp_file"; then
-        red "❌ 下载脚本失败！"
+        red "❌ 下载脚本失败！请检查网络连接或 URL。"
+        log "脚本更新失败：下载失败。"
         rm -f "$temp_file"
         echo ""
         read -n 1 -s -r -p "按任意键返回主菜单..."
@@ -462,7 +456,8 @@ self_update() {
     fi
 
     if ! head -n 1 "$temp_file" | grep -q "^#!/bin/bash"; then
-        red "❌ 错误：下载的文件无效。"
+        red "❌ 错误：下载的文件不是一个有效的 Bash 脚本。"
+        log "脚本更新失败：文件无效或已损坏。"
         rm -f "$temp_file"
         echo ""
         read -n 1 -s -r -p "按任意键返回主菜单..."
@@ -470,9 +465,10 @@ self_update() {
         return
     fi
 
-    log "下载成功，正在覆盖旧版本..."
+    log "下载成功，正在用新版本直接替换当前脚本..."
     if ! mv "$temp_file" "$script_path"; then
-        red "❌ 覆盖旧脚本文件失败！"
+        red "❌ 替换脚本文件失败！请检查文件系统权限。"
+        log "脚本更新失败：替换文件 '$script_path' 失败。"
         echo ""
         read -n 1 -s -r -p "按任意键返回主菜单..."
         main_menu
@@ -480,7 +476,7 @@ self_update() {
     fi
 
     chmod 700 "$script_path"
-    log "脚本权限已设置。"
+    log "新脚本权限已设置为 700。"
 
     green "🎉 脚本已成功更新！"
     log "脚本已成功更新到最新版本。"
@@ -491,11 +487,10 @@ self_update() {
     bold "=================================================="
     echo ""
     
-    # --- 核心改动：删除缓存并无缝重启 ---
-    # 1. hash -d cacti: 删除 cacti 命令的缓存，这是最直接的方法。
-    # 2. exec "$alias_path": 用新脚本替换当前进程，实现无缝重启。
-    #    因为缓存已被删除，exec 会使用新的脚本。
-    hash -d cacti 2>/dev/null # 忽略可能发生的 "hash: cacti: not found" 错误
+    # --- 核心改动：使用 exec 命令进行无缝重启 ---
+    # 1. exec 会用后面的命令替换掉当前的 Shell 进程。
+    # 2. 我们执行快捷方式 'cacti'，它会调用刚刚被更新的脚本。
+    # 3. 因为是替换进程，所以用户看起来就像是脚本刷新了一下，直接进入了新版本的菜单。
     exec "$alias_path"
 }
 
