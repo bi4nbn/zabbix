@@ -77,7 +77,7 @@ pre_check() {
     echo "  - 显式设置MySQL时区：$SET_MYSQL_TIMEZONE"
     echo "  - NTP服务器：${ALI_NTP_SERVERS[*]}"
     blue "=================================================="
-    sleep 3
+    sleep 1
 }
 
 # 步骤1：系统全量更新
