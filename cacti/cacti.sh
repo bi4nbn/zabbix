@@ -427,23 +427,20 @@ install_alias() {
     log "快捷方式 'cacti' 已成功安装。"
 }
 
-# --- 功能6: 静默更新 (最终修复版) ---
+# --- 功能6: 静默更新 (exec 进程替换版) ---
 self_update() {
     clear
     cyan "=================================================="
     echo "              脚本静默更新"
     cyan "=================================================="
     
-    # 明确指定脚本的真实路径
     local script_path="/usr/local/sbin/cacti-manager.sh"
-    # 明确指定快捷方式的路径
     local alias_path="/usr/local/bin/cacti"
 
     log "===== 开始执行脚本静默更新 ====="
     echo "正在从 $SCRIPT_URL 下载最新版本..."
 
-    local temp_file
-    temp_file=$(mktemp)
+    local temp_file=$(mktemp)
 
     if ! curl -sSL "$SCRIPT_URL" -o "$temp_file"; then
         red "❌ 下载脚本失败！请检查网络连接或 URL。"
@@ -466,14 +463,9 @@ self_update() {
     fi
 
     log "下载成功，正在用新版本直接替换当前脚本..."
-    if ! mv "$temp_file" "$script_path"; then
-        red "❌ 替换脚本文件失败！请检查文件系统权限。"
-        log "脚本更新失败：替换文件 '$script_path' 失败。"
-        echo ""
-        read -n 1 -s -r -p "按任意键返回主菜单..."
-        main_menu
-        return
-    fi
+    # 使用 cat 重定向，比 mv 更可靠地覆盖正在执行的文件
+    cat "$temp_file" > "$script_path"
+    rm -f "$temp_file"
 
     chmod 700 "$script_path"
     log "新脚本权限已设置为 700。"
@@ -484,24 +476,14 @@ self_update() {
     
     echo ""
     bold "=================================================="
-    bold "  更新完成！请执行以下操作："
-    bold ""
-    bold "  1. 按任意键退出当前脚本。"
-    bold "  2. 在您的终端中，直接按一下【回车】键。"
-    bold "  3. 新版本的脚本将自动启动。"
+    bold "  正在无缝重启最新版本的脚本..."
     bold "=================================================="
     echo ""
-    
-    # 【核心改动】
-    # 1. 等待用户按键，确保他们看到了提示信息。
-    read -n 1 -s -r
-    
-    # 2. 向标准输出打印一条命令，该命令会先清除缓存再执行新脚本。
-    #    这条命令会显示在用户的终端上。
-    echo "hash -d cacti 2>/dev/null; $alias_path"
-    
-    # 3. 退出当前脚本。
-    exit 0
+    sleep 1 # 给用户一点反应时间
+
+    # --- 核心改动：使用 exec 进行进程替换 ---
+    # 这会用新脚本的执行来替换当前的旧脚本进程
+    exec "$alias_path"
 }
 
 
