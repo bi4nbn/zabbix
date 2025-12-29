@@ -434,10 +434,20 @@ self_update() {
     echo "              脚本静默更新"
     cyan "=================================================="
     
-    # 使用 BASH_SOURCE[0] 来获取当前脚本的真实路径，这比写死路径更可靠
-    local script_path="${BASH_SOURCE[0]}"
+    # 【关键修正】直接指定脚本的真实路径，而不是依赖 BASH_SOURCE[0]
+    local script_path="/usr/local/sbin/cacti-manager.sh"
     # 快捷方式的路径，用于最后执行
     local alias_path="/usr/local/bin/cacti"
+
+    # 检查脚本主文件是否存在
+    if [ ! -f "$script_path" ]; then
+        red "❌ 错误：未在 '$script_path' 找到已安装的脚本。"
+        yellow "请先通过快捷方式安装脚本。"
+        echo ""
+        read -n 1 -s -r -p "按任意键返回主菜单..."
+        main_menu
+        return
+    fi
 
     log "===== 开始执行脚本静默更新 ====="
     echo "正在从 $SCRIPT_URL 下载最新版本..."
