@@ -26,7 +26,7 @@ DB_PASS="cactiuser"
 DB_SERVICE="mariadb"
 BACKUP_DIR="/backup/cacti"
 LOG_FILE="${BACKUP_DIR}/cacti_backup_restore.log"
-SCRIPT_VERSION="0.12" # <-- 版本号已更新以反映精简
+SCRIPT_VERSION="0.1" # <-- 版本号已更新以反映精简
 # =================================================================
 
 # --- 颜色和日志函数 ---
