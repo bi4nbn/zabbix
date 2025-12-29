@@ -402,25 +402,14 @@ self_update() {
     echo "              脚本静默更新"
     cyan "=================================================="
     
-    # 更新目标就是脚本自身
     local target_script="/usr/local/bin/cacti"
 
     log "===== 开始执行脚本静默更新 ====="
     
     # 检查 SCRIPT_URL 是否已定义
     if [ -z "$SCRIPT_URL" ]; then
-        red "❌ 错误：脚本更新地址 (SCRIPT_URL) 未在脚本中配置。"
+        red "❌ 错误：更新URL (SCRIPT_URL) 未在脚本中配置。"
         log "脚本更新失败：SCRIPT_URL 变量为空。"
-        echo ""
-        read -n 1 -s -r -p "按任意键返回主菜单..."
-        main_menu
-        return
-    fi
-
-    # 权限检查 (作为双重保险)
-    if [ "$(id -u)" -ne 0 ]; then
-        red "❌ 错误：更新脚本需要 root 权限。"
-        log "脚本更新失败：用户权限不足。"
         echo ""
         read -n 1 -s -r -p "按任意键返回主菜单..."
         main_menu
@@ -431,8 +420,10 @@ self_update() {
     echo "正在从 $SCRIPT_URL 下载最新版本..."
 
     local temp_file=$(mktemp)
+    
+    # 使用更健壮的 curl 命令
     if ! curl --connect-timeout 10 --max-time 30 -sSLf "$download_url" -o "$temp_file"; then
-        red "❌ 下载脚本失败！请检查网络连接或 URL。"
+        red "❌ 下载脚本失败！请检查网络或 URL。"
         log "脚本更新失败：curl 下载失败，URL: $download_url"
         rm -f "$temp_file"
         echo ""
@@ -441,6 +432,7 @@ self_update() {
         return
     fi
 
+    # 验证下载的文件
     if ! head -n 1 "$temp_file" | grep -q "^#!/bin/bash"; then
         red "❌ 错误：下载的文件不是一个有效的 Bash 脚本。"
         log "脚本更新失败：文件无效或已损坏。"
@@ -453,6 +445,7 @@ self_update() {
 
     log "下载成功，正在用新版本覆盖主程序..."
     
+    # 覆盖文件
     if ! cat "$temp_file" > "$target_script"; then
         red "❌ 替换主程序文件 $target_script 失败！"
         log "脚本更新失败：替换主程序文件失败。"
@@ -465,6 +458,7 @@ self_update() {
     
     rm -f "$temp_file"
 
+    # 确保权限
     chmod 700 "$target_script"
     log "新程序权限已设置为 700。"
 
@@ -479,7 +473,8 @@ self_update() {
     echo ""
     sleep 2
 
-    # 使用 exec 命令实现无缝重启
+    # --- 核心改动：使用 exec 命令实现无缝重启 ---
+    # 这行命令会用新的脚本进程替换掉当前的旧脚本进程，完美解决问题。
     exec "$target_script" "$@"
 }
 
