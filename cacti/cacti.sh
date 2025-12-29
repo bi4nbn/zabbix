@@ -423,25 +423,23 @@ install_alias() {
     log "独立启动文件 'cacti' 已成功安装。"
 }
 
-# --- 功能6: 静默更新 (最终修复版) ---
+# --- 功能6: 静默更新 (终极缓存对抗版) ---
 self_update() {
     clear
     cyan "=================================================="
     echo "              脚本静默更新"
     cyan "=================================================="
     
-    # 明确指定两个需要更新的文件路径
     local script_path="/usr/local/sbin/cacti-manager.sh"
     local alias_path="/usr/local/bin/cacti"
 
     log "===== 开始执行脚本静默更新 ====="
     
-    # 添加时间戳参数以强制刷新 CDN 缓存，确保下载的是最新版
     local download_url="${SCRIPT_URL}?$(date +%s)"
     echo "正在从 $SCRIPT_URL 下载最新版本 (强制刷新缓存)..."
 
+    # 下载到一个临时文件
     local temp_file=$(mktemp)
-
     if ! curl -sSL "$download_url" -o "$temp_file"; then
         red "❌ 下载脚本失败！请检查网络连接或 URL。"
         log "脚本更新失败：下载失败。"
@@ -462,11 +460,41 @@ self_update() {
         return
     fi
 
-    log "下载成功，正在用新版本替换两个脚本文件..."
-    # --- 核心改动：同时更新两个文件 ---
-    cat "$temp_file" > "$script_path"
-    cat "$temp_file" > "$alias_path"
-    rm -f "$temp_file"
+    log "下载成功，正在使用原子操作替换脚本文件..."
+    
+    # --- 核心改动 1: 使用 mv 进行原子替换 ---
+    # 这比 cat 重定向更能对抗文件系统缓存
+    if ! mv "$temp_file" "$script_path"; then
+        red "❌ 替换主脚本文件 $script_path 失败！"
+        log "脚本更新失败：替换主脚本文件失败。"
+        rm -f "$temp_file"
+        echo ""
+        read -n 1 -s -r -p "按任意键返回主菜单..."
+        main_menu
+        return
+    fi
+
+    # 再次下载一个副本用于更新 alias 文件
+    local temp_file_alias=$(mktemp)
+    if ! curl -sSL "$download_url" -o "$temp_file_alias"; then
+        red "❌ 下载 alias 文件副本失败！"
+        log "脚本更新失败：下载 alias 文件副本失败。"
+        rm -f "$temp_file_alias"
+        echo ""
+        read -n 1 -s -r -p "按任意键返回主菜单..."
+        main_menu
+        return
+    fi
+    
+    if ! mv "$temp_file_alias" "$alias_path"; then
+        red "❌ 替换 alias 文件 $alias_path 失败！"
+        log "脚本更新失败：替换 alias 文件失败。"
+        rm -f "$temp_file_alias"
+        echo ""
+        read -n 1 -s -r -p "按任意键返回主菜单..."
+        main_menu
+        return
+    fi
 
     chmod 700 "$script_path"
     chmod 700 "$alias_path"
@@ -478,10 +506,13 @@ self_update() {
     
     echo ""
     bold "=================================================="
-    bold "  正在通过新进程无缝重启最新版本的脚本..."
+    bold "  正在等待系统缓存刷新，并重启最新版本的脚本..."
     bold "=================================================="
     echo ""
-    sleep 1
+    
+    # --- 核心改动 2: 加入短暂延迟 ---
+    # 给系统内核一点时间，让它意识到文件已经被修改
+    sleep 2
 
     # 使用 exec 启动一个全新的进程来执行更新后的脚本
     exec bash -c "$alias_path"
