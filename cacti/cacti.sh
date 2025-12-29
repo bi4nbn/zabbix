@@ -406,11 +406,11 @@ main_menu() {
     blue "=================================================="
     green "           Cacti 一站式管理工具箱"
     blue "=================================================="
-    echo "  1) 安装 Cacti"
-    echo "  2) 备份 Cacti"
-    echo "  3) 恢复 Cacti"
-    echo "  4) 终极卸载 Cacti"
-    echo "  5) 退出"
+    echo " (1) 安装 Cacti"
+    echo " (2) 备份 Cacti"
+    echo " (3) 恢复 Cacti"
+    echo " (4) 卸载 Cacti"
+    echo " (5) 退出"
     blue "=================================================="
     read -p "请输入您的选择 [1-5]: " choice
 
