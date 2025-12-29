@@ -2,7 +2,7 @@
 
 
 ```
-curl -sL https://raw.githubusercontent.com/bi4nbn/zabbix/refs/heads/main/cacti/install.sh | bash
+curl -sL https://raw.githubusercontent.com/bi4nbn/zabbix/refs/heads/main/cacti/cacti.sh | bash
 ```
 
 
