@@ -427,84 +427,59 @@ install_alias() {
     log "快捷方式 'cacti' 已成功安装。"
 }
 
-# --- 功能6: 静默更新 (终极修复版) ---
 self_update() {
     clear
     cyan "=================================================="
     echo "              脚本静默更新"
     cyan "=================================================="
-    
-    # 【关键修正】直接指定脚本的真实路径，而不是依赖 BASH_SOURCE[0]
+
     local script_path="/usr/local/sbin/cacti-manager.sh"
     local alias_path="/usr/local/bin/cacti"
+    local temp_new="/usr/local/sbin/.cacti-manager.new"
+    local updater="/usr/local/sbin/.cacti-updater.sh"
 
-    # 检查脚本主文件是否存在
-    if [ ! -f "$script_path" ]; then
-        red "❌ 错误：未在 '$script_path' 找到已安装的脚本。"
-        yellow "请先通过快捷方式安装脚本。"
-        echo ""
-        read -n 1 -s -r -p "按任意键返回主菜单..."
-        main_menu
+    [ -f "$script_path" ] || {
+        red "❌ 未找到主脚本：$script_path"
         return
-    fi
+    }
 
     log "===== 开始执行脚本静默更新 ====="
-    echo "正在从 $SCRIPT_URL 下载最新版本..."
+    echo "正在下载最新版本..."
 
-    local temp_file
-    temp_file=$(mktemp)
-
-    if ! curl -sSL "$SCRIPT_URL" -o "$temp_file"; then
-        red "❌ 下载脚本失败！请检查网络连接或 URL。"
-        log "脚本更新失败：下载失败。"
-        rm -f "$temp_file"
-        echo ""
-        read -n 1 -s -r -p "按任意键返回主菜单..."
-        main_menu
+    if ! curl -fsSL "$SCRIPT_URL" -o "$temp_new"; then
+        red "❌ 下载失败"
+        rm -f "$temp_new"
         return
     fi
 
-    if ! head -n 1 "$temp_file" | grep -q "^#!/bin/bash"; then
-        red "❌ 错误：下载的文件不是一个有效的 Bash 脚本。"
-        log "脚本更新失败：文件无效或已损坏。"
-        rm -f "$temp_file"
-        echo ""
-        read -n 1 -s -r -p "按任意键返回主菜单..."
-        main_menu
+    if ! head -n 1 "$temp_new" | grep -q '^#!/bin/bash'; then
+        red "❌ 下载内容不是 Bash 脚本"
+        rm -f "$temp_new"
         return
     fi
 
-    log "下载成功，正在用新版本直接替换当前脚本..."
-    
-    # --- 核心改动：使用文件描述符进行强制覆盖 ---
-    # 这种方法绕过了文件系统的某些限制，确保文件替换的原子性。
-    exec 3<>"$script_path"
-    if ! mv "$temp_file" "$script_path"; then
-        red "❌ 替换脚本文件失败！请检查文件系统权限。"
-        log "脚本更新失败：替换文件 '$script_path' 失败。"
-        exec 3>&-
-        echo ""
-        read -n 1 -s -r -p "按任意键返回主菜单..."
-        main_menu
-        return
-    fi
-    exec 3>&-
+    chmod 700 "$temp_new"
 
-    chmod 700 "$script_path"
-    log "新脚本权限已设置为 700。"
+    log "新版本下载完成，生成更新器..."
 
-    green "🎉 脚本已成功更新！"
-    log "脚本已成功更新到最新版本。"
-    
-    echo ""
-    bold "=================================================="
-    bold "  正在无缝重启最新版本的脚本..."
-    bold "=================================================="
-    echo ""
-    
-    # --- 核心改动：使用 exec 命令进行无缝重启 ---
-    exec "$alias_path"
+    cat > "$updater" <<EOF
+#!/bin/bash
+sleep 1
+
+mv -f "$temp_new" "$script_path" || exit 1
+chmod 700 "$script_path"
+
+exec "$alias_path"
+EOF
+
+    chmod 700 "$updater"
+
+    green "🎉 更新已准备完成，正在无缝切换新版本..."
+    log "更新器已生成，当前脚本即将退出"
+
+    exec "$updater"
 }
+
 
 # --- 主菜单 ---
 main_menu() {
