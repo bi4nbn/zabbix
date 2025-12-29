@@ -396,35 +396,31 @@ uninstall_cacti() {
     main_menu
 }
 
-# --- 功能5: 自动安装快捷方式 (彻底修复版) ---
+# --- 功能5: 自动安装快捷方式 (最终修复版) ---
 install_alias() {
     local script_dest="/usr/local/sbin/cacti-manager.sh"
     local alias_dest="/usr/local/bin/cacti"
 
-    # 检查快捷方式是否已经是一个独立的启动脚本
+    # 【核心改动】
+    # 检查快捷方式是否已经是一个独立的文件，而不是软链接
     if [ -f "$alias_dest" ] && ! [ -L "$alias_dest" ]; then
         log_quiet "快捷方式 'cacti' 已存在且是普通文件，跳过安装。"
         return 0
     fi
 
-    blue "=== 正在为脚本创建独立的启动快捷方式... ==="
+    blue "=== 正在为脚本创建独立的启动文件... ==="
     
-    # 创建一个临时的启动脚本内容
-    local wrapper_content='#!/bin/bash
-# 这是一个独立的启动脚本，用于调用 cacti-manager.sh
-# 它不会被更新，因此不会有缓存问题
-exec /usr/local/sbin/cacti-manager.sh "$@"'
-
-    # 将启动脚本内容写入目标位置
-    if ! echo "$wrapper_content" > "$alias_dest"; then
-        red "❌ 创建独立启动脚本 $alias_dest 失败！"
+    # 【核心改动】
+    # 将当前运行的脚本内容直接复制到目标位置
+    if ! cp "$0" "$alias_dest"; then
+        red "❌ 创建独立启动文件 $alias_dest 失败！"
         return 1
     fi
-
+    
     chmod 700 "$alias_dest"
-    green "✅ 独立启动快捷方式安装成功！"
+    green "✅ 独立启动文件安装成功！"
     green "   现在您可以在任何目录下直接输入 'cacti' 来运行此管理脚本。"
-    log "独立启动快捷方式 'cacti' 已成功安装。"
+    log "独立启动文件 'cacti' 已成功安装。"
 }
 
 # --- 功能6: 静默更新 (最终修复版) ---
