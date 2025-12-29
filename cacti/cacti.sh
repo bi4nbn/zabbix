@@ -16,10 +16,11 @@
 # ⚠️  安全警告:
 #   - 脚本包含数据库密码明文，且执行 root 权限操作。
 #   - 请严格限制此脚本的访问权限。
-#   - 建议权限: chmod 700 cacti_manager.sh
 ##############################################################################
 
 # ======================== 【配置区】 ========================
+# 注意: 这些凭据主要用于备份和卸载前的最后备份。
+# 恢复操作会优先使用备份文件中包含的 db.php 配置。
 DB_NAME="cacti"
 DB_USER="cactiuser"
 DB_PASS="cactiuser"
@@ -255,31 +256,58 @@ perform_restore() {
         return
     fi
 
-    # 3. 恢复数据库
-    log "正在恢复数据库..."
-    # 先删除并重建数据库，确保环境干净
-    if mysql -u"$DB_USER" -p"$DB_PASS" -e "DROP DATABASE IF EXISTS $DB_NAME; CREATE DATABASE $DB_NAME CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;" >> "$LOG_FILE" 2>&1; then
-        if mysql -u"$DB_USER" -p"$DB_PASS" "$DB_NAME" < "${temp_dir}/cacti_database.sql" >> "$LOG_FILE" 2>&1; then
+    # 【修复】3. 优先恢复数据库配置文件 db.php，以获取正确的连接凭据
+    log "正在恢复 Cacti 配置文件 (db.php)..."
+    if [ -f "${temp_dir}/configs/db.php" ]; then
+        cp "${temp_dir}/configs/db.php" "/etc/cacti/db.php"
+        chown apache:apache "/etc/cacti/db.php"
+        log "db.php 配置文件恢复成功。"
+
+        # 从恢复的 db.php 中提取数据库凭据
+        # shellcheck source=/dev/null
+        source "/etc/cacti/db.php"
+        
+        # 从 db.php 中提取数据库名 (如果 db.php 中没有 $database_name, 则使用默认值)
+        local restored_db_name
+        restored_db_name=$(grep -oP "\$database_name\s*=\s*'\K[^']+" "/etc/cacti/db.php")
+        if [ -z "$restored_db_name" ]; then
+            log "警告: 未在 db.php 中找到 \$database_name，将使用默认值 'cacti'。"
+            restored_db_name="cacti"
+        fi
+    else
+        red "❌ 错误：备份文件中缺少 db.php 配置文件，无法恢复。"
+        log "恢复失败：备份文件中缺少 db.php。"
+        start_services
+        rm -rf "$temp_dir"
+        echo ""
+        read -n 1 -s -r -p "按任意键返回主菜单..."
+        main_menu
+        return
+    fi
+
+    # 4. 恢复数据库 (使用从备份中恢复的凭据)
+    log "正在恢复数据库 '$restored_db_name'..."
+    if mysql -u"$database_username" -p"$database_password" -e "DROP DATABASE IF EXISTS $restored_db_name; CREATE DATABASE $restored_db_name CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;" >> "$LOG_FILE" 2>&1; then
+        if mysql -u"$database_username" -p"$database_password" "$restored_db_name" < "${temp_dir}/cacti_database.sql" >> "$LOG_FILE" 2>&1; then
             log "数据库恢复成功。"
             
-            # 4. 恢复 RRD 数据
+            # 5. 恢复 RRD 数据
             log "正在恢复 RRD 数据文件..."
             rsync -a --delete "${temp_dir}/rra/" "/var/lib/cacti/rra/" >> "$LOG_FILE" 2>&1
             
-            # 5. 恢复 Cacti 程序文件
+            # 6. 恢复 Cacti 程序文件
             log "正在恢复 Cacti 程序文件..."
             rsync -a --delete "${temp_dir}/cacti_web/" "/usr/share/cacti/" >> "$LOG_FILE" 2>&1
 
-            # 6. 恢复 Cacti 配置
-            log "正在恢复 Cacti 配置文件..."
-            [ -f "${temp_dir}/configs/db.php" ] && cp "${temp_dir}/configs/db.php" "/etc/cacti/"
+            # 7. 恢复其他配置文件
+            log "正在恢复其他配置文件..."
             [ -f "${temp_dir}/configs/spine.conf" ] && cp "${temp_dir}/configs/spine.conf" "/etc/"
 
-            # 7. 修复文件权限
+            # 8. 修复文件权限
             log "正在修复文件权限..."
             chown -R apache:apache /var/lib/cacti/rra
             chown -R apache:apache /usr/share/cacti
-            chown -R apache:apache /etc/cacti/db.php
+            # db.php 的权限已在前面步骤中设置
 
             green "🎉 Cacti 精准恢复成功！"
             log "Cacti 精准恢复成功。"
@@ -288,12 +316,12 @@ perform_restore() {
             log "数据库恢复失败。"
         fi
     else
-        red "❌ 无法连接或操作数据库！请检查数据库凭据。"
+        red "❌ 无法连接或操作数据库！请检查从备份中恢复的 db.php 凭据。"
         log "无法连接或操作数据库。"
     fi
     rm -rf "$temp_dir"
     
-    # 8. 启动服务
+    # 9. 启动服务
     start_services
     
     echo ""
@@ -369,10 +397,10 @@ uninstall_cacti() {
     # 2. 执行精准卸载
     log "===== 开始执行 Cacti 精准卸载 ====="
     
-    # 停止并禁用核心服务
-    log "正在停止并禁用核心服务 (httpd, mariadb, crond)..."
-    systemctl stop httpd mariadb crond >/dev/null 2>&1
-    systemctl disable httpd mariadb crond >/dev/null 2>&1
+    # 【修复】停止并禁用核心服务 (不再操作 crond 服务)
+    log "正在停止并禁用核心服务 (httpd, mariadb)..."
+    systemctl stop httpd mariadb >/dev/null 2>&1
+    systemctl disable httpd mariadb >/dev/null 2>&1
     log "核心服务已停止并禁用。"
 
     # 卸载所有相关的软件包
@@ -392,6 +420,7 @@ uninstall_cacti() {
     rm -rf /etc/cacti
     rm -rf /etc/spine.conf
     rm -rf /etc/httpd/conf.d/cacti.conf
+    # 确保删除 Cacti 的 cron job，但不影响系统 crond 服务
     rm -rf /etc/cron.d/cacti
     rm -rf /var/log/cacti
     # --- 彻底删除 MariaDB/MySQL 相关文件 ---
@@ -506,13 +535,13 @@ self_update() {
 main_menu() {
     clear
     blue "=================================================="
-    green "           Cacti 一站式管理工具箱 (最终版)"
+    green "           Cacti 一站式管理工具箱 "
     blue "=================================================="
     echo " (1) 安装 Cacti"
-    echo " (2) 备份 Cacti (最简化)"
-    echo " (3) 恢复 Cacti (精准)"
-    echo " (4) 卸载 Cacti (精准)"
-    echo " (5) 更新脚本 (静默)"  
+    echo " (2) 备份 Cacti "
+    echo " (3) 恢复 Cacti "
+    echo " (4) 卸载 Cacti "
+    echo " (5) 更新脚本 "  
     echo " (6) 退出"      
     blue "=================================================="
     read -p "请输入您的选择 [1-6]: " choice
