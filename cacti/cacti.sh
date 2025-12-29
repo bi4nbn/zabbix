@@ -486,8 +486,8 @@ main_menu() {
         2) perform_backup ;;
         3) perform_restore ;;
         4) uninstall_cacti ;;
-        5) self_update ;;   
-        6)                  
+        5) self_update ;;   # <-- 调用新功能
+        6)                  # <-- 退出选项编号后移
             log "用户选择退出脚本。"
             green "感谢使用，再见！"
             exit 0
