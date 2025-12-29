@@ -407,13 +407,33 @@ self_update() {
 
     log "===== 开始执行脚本静默更新 ====="
     
+    # 检查 SCRIPT_URL 是否已定义
+    if [ -z "$SCRIPT_URL" ]; then
+        red "❌ 错误：脚本更新地址 (SCRIPT_URL) 未在脚本中配置。"
+        log "脚本更新失败：SCRIPT_URL 变量为空。"
+        echo ""
+        read -n 1 -s -r -p "按任意键返回主菜单..."
+        main_menu
+        return
+    fi
+
+    # 权限检查 (作为双重保险)
+    if [ "$(id -u)" -ne 0 ]; then
+        red "❌ 错误：更新脚本需要 root 权限。"
+        log "脚本更新失败：用户权限不足。"
+        echo ""
+        read -n 1 -s -r -p "按任意键返回主菜单..."
+        main_menu
+        return
+    fi
+
     local download_url="${SCRIPT_URL}?$(date +%s)"
     echo "正在从 $SCRIPT_URL 下载最新版本..."
 
     local temp_file=$(mktemp)
-    if ! curl -sSL "$download_url" -o "$temp_file"; then
+    if ! curl --connect-timeout 10 --max-time 30 -sSLf "$download_url" -o "$temp_file"; then
         red "❌ 下载脚本失败！请检查网络连接或 URL。"
-        log "脚本更新失败：下载失败。"
+        log "脚本更新失败：curl 下载失败，URL: $download_url"
         rm -f "$temp_file"
         echo ""
         read -n 1 -s -r -p "按任意键返回主菜单..."
@@ -433,9 +453,8 @@ self_update() {
 
     log "下载成功，正在用新版本覆盖主程序..."
     
-    # 使用 cat 命令，将临时文件的内容覆盖到目标脚本文件
     if ! cat "$temp_file" > "$target_script"; then
-        red "❌ 替换主程序文件 $target_script 失败！请检查权限。"
+        red "❌ 替换主程序文件 $target_script 失败！"
         log "脚本更新失败：替换主程序文件失败。"
         rm -f "$temp_file"
         echo ""
@@ -446,7 +465,6 @@ self_update() {
     
     rm -f "$temp_file"
 
-    # 确保主脚本有执行权限
     chmod 700 "$target_script"
     log "新程序权限已设置为 700。"
 
@@ -456,19 +474,13 @@ self_update() {
     
     echo ""
     bold "=================================================="
-    bold "  !!! 更新完成，请手动重启程序 !!!"
-    bold ""
-    bold "  操作步骤："
-    bold "  1. 按任意键，当前脚本将退出。"
-    bold "  2. 您将返回到系统终端提示符。"
-    bold "  3. 在提示符后输入 'cacti' 并按回车。"
-    bold "  4. 您将看到新版本的界面。"
+    bold "  !!! 更新完成，正在自动重启程序 !!!"
     bold "=================================================="
     echo ""
+    sleep 2
 
-    # --- 核心改动：直接退出，不再做任何形式的自动重启 ---
-    read -n 1 -s -r
-    exit 0
+    # 使用 exec 命令实现无缝重启
+    exec "$target_script" "$@"
 }
 
 # --- 主菜单 ---
