@@ -29,7 +29,7 @@ DB_SERVICE="mariadb"
 BACKUP_DIR="/backup/cacti"
 LOG_FILE="${BACKUP_DIR}/cacti_backup_restore.log"
 SCRIPT_URL="https://raw.githubusercontent.com/bi4nbn/zabbix/refs/heads/main/cacti/cacti.sh"
-SCRIPT_VERSION="0.12"
+SCRIPT_VERSION="0.1"
 # =================================================================
 
 # --- 颜色和日志函数 ---
