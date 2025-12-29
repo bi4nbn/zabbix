@@ -427,7 +427,7 @@ exec /usr/local/sbin/cacti-manager.sh "$@"'
     log "独立启动快捷方式 'cacti' 已成功安装。"
 }
 
-# --- 功能6: 静默更新 (终极修复版) ---
+# --- 功能6: 静默更新 (CDN 缓存修复版) ---
 self_update() {
     clear
     cyan "=================================================="
@@ -438,11 +438,15 @@ self_update() {
     local alias_path="/usr/local/bin/cacti"
 
     log "===== 开始执行脚本静默更新 ====="
-    echo "正在从 $SCRIPT_URL 下载最新版本..."
+    
+    # --- 核心改动：添加时间戳参数以强制刷新 CDN 缓存 ---
+    # $(date +%s) 会生成一个唯一的当前时间戳
+    local download_url="${SCRIPT_URL}?$(date +%s)"
+    echo "正在从 $SCRIPT_URL 下载最新版本 (强制刷新缓存)..."
 
     local temp_file=$(mktemp)
 
-    if ! curl -sSL "$SCRIPT_URL" -o "$temp_file"; then
+    if ! curl -sSL "$download_url" -o "$temp_file"; then
         red "❌ 下载脚本失败！请检查网络连接或 URL。"
         log "脚本更新失败：下载失败。"
         rm -f "$temp_file"
@@ -463,7 +467,6 @@ self_update() {
     fi
 
     log "下载成功，正在用新版本直接替换当前脚本..."
-    # 使用 cat 重定向，比 mv 更可靠地覆盖正在执行的文件
     cat "$temp_file" > "$script_path"
     rm -f "$temp_file"
 
@@ -479,9 +482,9 @@ self_update() {
     bold "  正在通过新进程无缝重启最新版本的脚本..."
     bold "=================================================="
     echo ""
-    sleep 1 # 给用户一点反应时间
+    sleep 1
 
-    # --- 核心改动：使用 exec bash -c 来启动一个全新的、无缓存的进程 ---
+    # 使用 exec 启动一个全新的进程来执行更新后的脚本
     exec bash -c "$alias_path"
 }
 
