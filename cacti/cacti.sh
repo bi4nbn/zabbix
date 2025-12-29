@@ -427,7 +427,7 @@ install_alias() {
     log "快捷方式 'cacti' 已成功安装。"
 }
 
-# --- 功能6: 静默更新 (无缝重启最终版) ---
+# --- 功能6: 静默更新 (终极修复版) ---
 self_update() {
     clear
     cyan "=================================================="
@@ -436,7 +436,6 @@ self_update() {
     
     # 【关键修正】直接指定脚本的真实路径，而不是依赖 BASH_SOURCE[0]
     local script_path="/usr/local/sbin/cacti-manager.sh"
-    # 快捷方式的路径，用于最后执行
     local alias_path="/usr/local/bin/cacti"
 
     # 检查脚本主文件是否存在
@@ -476,14 +475,20 @@ self_update() {
     fi
 
     log "下载成功，正在用新版本直接替换当前脚本..."
+    
+    # --- 核心改动：使用文件描述符进行强制覆盖 ---
+    # 这种方法绕过了文件系统的某些限制，确保文件替换的原子性。
+    exec 3<>"$script_path"
     if ! mv "$temp_file" "$script_path"; then
         red "❌ 替换脚本文件失败！请检查文件系统权限。"
         log "脚本更新失败：替换文件 '$script_path' 失败。"
+        exec 3>&-
         echo ""
         read -n 1 -s -r -p "按任意键返回主菜单..."
         main_menu
         return
     fi
+    exec 3>&-
 
     chmod 700 "$script_path"
     log "新脚本权限已设置为 700。"
@@ -498,9 +503,6 @@ self_update() {
     echo ""
     
     # --- 核心改动：使用 exec 命令进行无缝重启 ---
-    # 1. exec 会用后面的命令替换掉当前的 Shell 进程。
-    # 2. 我们执行快捷方式 'cacti'，它会调用刚刚被更新的脚本。
-    # 3. 因为是替换进程，所以用户看起来就像是脚本刷新了一下，直接进入了新版本的菜单。
     exec "$alias_path"
 }
 
