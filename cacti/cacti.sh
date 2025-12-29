@@ -10,6 +10,7 @@
 #   6. 【详细日志】所有操作记录在 /backup/cacti/cacti_backup_restore.log。
 #   7. 【简洁输出】屏幕只显示关键信息，过程细节记录在日志中。
 #   8. 【自动快捷方式】首次运行后，自动创建 'cacti' 命令，方便后续调用。
+#   9. 【自我更新】新增菜单选项，可一键更新脚本至最新版本。
 #
 # ⚠️  安全警告:
 #   - 脚本包含数据库密码明文，且执行 root 权限操作。
@@ -24,6 +25,7 @@ DB_PASS="cactiuser"
 DB_SERVICE="mariadb"
 BACKUP_DIR="/backup/cacti"
 LOG_FILE="${BACKUP_DIR}/cacti_backup_restore.log"
+SCRIPT_URL="https://raw.githubusercontent.com/bi4nbn/zabbix/refs/heads/main/cacti/cacti.sh"
 # =================================================================
 
 # --- 颜色和日志函数 ---
@@ -31,6 +33,10 @@ red() { echo -e "\033[31m$1\033[0m"; }
 green() { echo -e "\033[32m$1\033[0m"; }
 yellow() { echo -e "\033[33m$1\033[0m"; }
 blue() { echo -e "\033[34m$1\033[0m"; }
+purple() { echo -e "\033[35m$1\033[0m"; }
+cyan() { echo -e "\033[36m$1\033[0m"; }
+gray() { echo -e "\033[90m$1\033[0m"; }
+bold() { echo -e "\033[1m$1\033[0m"; }
 
 log() {
     local timestamp=$(date "+%Y-%m-%d %H:%M:%S")
@@ -399,6 +405,66 @@ install_alias() {
     log "快捷方式 'cacti' 已成功安装。"
 }
 
+# --- 功能6: 自我更新 ---
+self_update() {
+    clear
+    cyan "=================================================="
+    echo "              脚本自我更新"
+    cyan "=================================================="
+    
+    # 定义脚本的安装路径
+    local script_path="/usr/local/sbin/cacti-manager.sh"
+
+    # 检查脚本是否已安装到标准位置
+    if [ ! -f "$script_path" ]; then
+        red "❌ 错误：未在 $script_path 找到已安装的脚本。"
+        yellow "请先通过快捷方式安装脚本，或使用以下命令安装后再尝试更新："
+        echo "  curl -sSL -o cacti.sh $SCRIPT_URL && chmod +x cacti.sh && ./cacti.sh"
+        echo ""
+        read -n 1 -s -r -p "按任意键返回主菜单..."
+        main_menu
+        return
+    fi
+
+    read -p "是否确认从 $SCRIPT_URL 更新脚本? (y/N): " confirm
+    if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
+        log "用户取消了脚本更新操作。"
+        echo "更新已取消。"
+        echo ""
+        read -n 1 -s -r -p "按任意键返回主菜单..."
+        main_menu
+        return
+    fi
+
+    log "===== 开始执行脚本自我更新 ====="
+    echo "正在从 $SCRIPT_URL 下载最新版本..."
+
+    # 使用 curl 下载新版本并直接覆盖旧版本
+    if ! curl -sSL "$SCRIPT_URL" -o "$script_path"; then
+        red "❌ 下载脚本失败！请检查网络连接或 URL 是否正确。"
+        log "脚本更新失败：下载失败。"
+        echo ""
+        read -n 1 -s -r -p "按任意键返回主菜单..."
+        main_menu
+        return
+    fi
+
+    # 确保新脚本仍然有执行权限
+    chmod 700 "$script_path"
+
+    green "🎉 脚本更新成功！"
+    log "脚本已成功更新到最新版本。"
+    
+    echo ""
+    bold "=================================================="
+    bold "  请在终端中重新输入 'cacti' 命令以运行新版本。"
+    bold "=================================================="
+    echo ""
+    
+    # 退出当前脚本，让用户手动重启
+    exit 0
+}
+
 
 # --- 主菜单 ---
 main_menu() {
@@ -410,22 +476,24 @@ main_menu() {
     echo " (2) 备份 Cacti"
     echo " (3) 恢复 Cacti"
     echo " (4) 卸载 Cacti"
-    echo " (5) 退出"
+    echo " (5) 更新脚本"  
+    echo " (6) 退出"      
     blue "=================================================="
-    read -p "请输入您的选择 [1-5]: " choice
+    read -p "请输入您的选择 [1-6]: " choice # <-- 选项范围更新
 
     case $choice in
         1) install_cacti ;;
         2) perform_backup ;;
         3) perform_restore ;;
         4) uninstall_cacti ;;
-        5)
+        5) self_update ;;   
+        6)                  
             log "用户选择退出脚本。"
             green "感谢使用，再见！"
             exit 0
             ;;
         *)
-            red "无效的选项，请输入 1-5 之间的数字。"
+            red "无效的选项，请输入 1-6 之间的数字。" # <-- 提示信息更新
             sleep 2
             main_menu
             ;;
