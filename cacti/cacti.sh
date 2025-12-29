@@ -1,12 +1,14 @@
 #!/bin/bash
 ##############################################################################
-# Cacti 一站式管理脚本 (安装/备份/恢复/精准卸载)
+# Cacti 一站式管理脚本 (最终版)
 # 功能:
 #   1. 【集成安装】通过官方脚本一键安装 Cacti。
 #   2. 【最简化备份】备份数据库、RRD文件、程序和核心配置。
 #   3. 【精准恢复】在全新环境上恢复 Cacti 数据和配置。
+#      - 恢复逻辑：删除旧库，直接导入备份。
 #   4. 【精准卸载】仅卸载 Cacti 及其 LAMP 运行环境，不影响系统其他部分。
-#      - 彻底删除 MariaDB/MySQL 的程序、数据和所有配置文件。
+#      - 安全卸载：不会禁用系统级 crond 服务。
+#      - 彻底清理：删除 MariaDB/MySQL、PHP、Apache 等相关程序和配置。
 #   5. 【静默更新】输入选项 '5' 后直接从指定 URL 下载并更新脚本。
 #   6. 【持久化菜单】操作完成后返回主菜单，方便连续管理。
 #   7. 【详细日志】所有操作记录在 /backup/cacti/cacti_backup_restore.log。
@@ -16,11 +18,10 @@
 # ⚠️  安全警告:
 #   - 脚本包含数据库密码明文，且执行 root 权限操作。
 #   - 请严格限制此脚本的访问权限。
+#   - 建议权限: chmod 700 cacti_tool.sh
 ##############################################################################
 
 # ======================== 【配置区】 ========================
-# 注意: 这些凭据主要用于备份和卸载前的最后备份。
-# 恢复操作会优先使用备份文件中包含的 db.php 配置。
 DB_NAME="cacti"
 DB_USER="cactiuser"
 DB_PASS="cactiuser"
@@ -124,11 +125,11 @@ install_cacti() {
     main_menu
 }
 
-# --- 功能2: Cacti 最简化备份 (优化版) ---
+# --- 功能2: Cacti 最简化备份 ---
 perform_backup() {
     clear
     blue "=================================================="
-    echo "           Cacti 最简化备份 (官方推荐核心)"
+    echo "           Cacti 最简化备份"
     blue "=================================================="
     
     if ! check_dependencies; then
@@ -149,7 +150,7 @@ perform_backup() {
     local full_backup_path="${BACKUP_DIR}/${backup_filename}"
     local temp_dir=$(mktemp -d)
 
-    # 1. 备份数据库 (包含所有模板和配置)
+    # 1. 备份数据库
     log "正在备份 Cacti 数据库..."
     if ! mysqldump -u"$DB_USER" -p"$DB_PASS" "$DB_NAME" > "${temp_dir}/cacti_database.sql" 2>> "$LOG_FILE"; then
         red "❌ 数据库备份失败！请检查数据库凭据和服务状态。"
@@ -164,7 +165,7 @@ perform_backup() {
         log "正在备份 Cacti 程序文件..."
         rsync -a --delete "/usr/share/cacti/" "${temp_dir}/cacti_web/" >> "$LOG_FILE" 2>&1
         
-        # 4. 备份 Cacti 自身的配置文件
+        # 4. 备份 Cacti 配置文件
         log "正在备份 Cacti 配置文件..."
         mkdir -p "${temp_dir}/configs"
         [ -f "/etc/cacti/db.php" ] && cp "/etc/cacti/db.php" "${temp_dir}/configs/"
@@ -187,7 +188,7 @@ perform_backup() {
     main_menu
 }
 
-# --- 功能3: Cacti 精准恢复 (优化版) ---
+# --- 功能3: Cacti 精准恢复 (最终简化版) ---
 perform_restore() {
     clear
     blue "=================================================="
@@ -204,7 +205,6 @@ perform_restore() {
         return
     fi
 
-    # 查找所有备份文件
     mapfile -t BACKUP_FILES < <(ls -tp "${BACKUP_DIR}"/*.tar.gz 2>/dev/null | grep -v '/$' | sort -r)
     if [ ${#BACKUP_FILES[@]} -eq 0 ]; then
         red "❌ 错误：在 $BACKUP_DIR 目录中未找到任何备份文件。"
@@ -240,43 +240,12 @@ perform_restore() {
     log "选择恢复的文件: $selected_file"
     local temp_dir=$(mktemp -d)
 
-    # 1. 停止服务
     stop_services
 
-    # 2. 解压备份文件
     log "正在解压备份文件..."
     if ! tar -xzf "$selected_file" -C "$temp_dir" >> "$LOG_FILE" 2>&1; then
         red "❌ 解压备份文件失败！文件可能已损坏。"
         log "解压备份文件失败。"
-        start_services # 恢复失败，重新启动服务
-        rm -rf "$temp_dir"
-        echo ""
-        read -n 1 -s -r -p "按任意键返回主菜单..."
-        main_menu
-        return
-    fi
-
-    # 【修复】3. 优先恢复数据库配置文件 db.php，以获取正确的连接凭据
-    log "正在恢复 Cacti 配置文件 (db.php)..."
-    if [ -f "${temp_dir}/configs/db.php" ]; then
-        cp "${temp_dir}/configs/db.php" "/etc/cacti/db.php"
-        chown apache:apache "/etc/cacti/db.php"
-        log "db.php 配置文件恢复成功。"
-
-        # 从恢复的 db.php 中提取数据库凭据
-        # shellcheck source=/dev/null
-        source "/etc/cacti/db.php"
-        
-        # 从 db.php 中提取数据库名 (如果 db.php 中没有 $database_name, 则使用默认值)
-        local restored_db_name
-        restored_db_name=$(grep -oP "\$database_name\s*=\s*'\K[^']+" "/etc/cacti/db.php")
-        if [ -z "$restored_db_name" ]; then
-            log "警告: 未在 db.php 中找到 \$database_name，将使用默认值 'cacti'。"
-            restored_db_name="cacti"
-        fi
-    else
-        red "❌ 错误：备份文件中缺少 db.php 配置文件，无法恢复。"
-        log "恢复失败：备份文件中缺少 db.php。"
         start_services
         rm -rf "$temp_dir"
         echo ""
@@ -285,43 +254,34 @@ perform_restore() {
         return
     fi
 
-    # 4. 恢复数据库 (使用从备份中恢复的凭据)
-    log "正在恢复数据库 '$restored_db_name'..."
-    if mysql -u"$database_username" -p"$database_password" -e "DROP DATABASE IF EXISTS $restored_db_name; CREATE DATABASE $restored_db_name CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;" >> "$LOG_FILE" 2>&1; then
-        if mysql -u"$database_username" -p"$database_password" "$restored_db_name" < "${temp_dir}/cacti_database.sql" >> "$LOG_FILE" 2>&1; then
-            log "数据库恢复成功。"
-            
-            # 5. 恢复 RRD 数据
-            log "正在恢复 RRD 数据文件..."
-            rsync -a --delete "${temp_dir}/rra/" "/var/lib/cacti/rra/" >> "$LOG_FILE" 2>&1
-            
-            # 6. 恢复 Cacti 程序文件
-            log "正在恢复 Cacti 程序文件..."
-            rsync -a --delete "${temp_dir}/cacti_web/" "/usr/share/cacti/" >> "$LOG_FILE" 2>&1
+    # 【核心逻辑】恢复数据库
+    log "正在恢复数据库 '$DB_NAME'..."
+    if mysql -u"$DB_USER" -p"$DB_PASS" -e "DROP DATABASE IF EXISTS $DB_NAME; SOURCE ${temp_dir}/cacti_database.sql;" >> "$LOG_FILE" 2>&1; then
+        log "数据库恢复成功。"
+        
+        log "正在恢复 RRD 数据文件..."
+        rsync -a --delete "${temp_dir}/rra/" "/var/lib/cacti/rra/" >> "$LOG_FILE" 2>&1
+        
+        log "正在恢复 Cacti 程序文件..."
+        rsync -a --delete "${temp_dir}/cacti_web/" "/usr/share/cacti/" >> "$LOG_FILE" 2>&1
 
-            # 7. 恢复其他配置文件
-            log "正在恢复其他配置文件..."
-            [ -f "${temp_dir}/configs/spine.conf" ] && cp "${temp_dir}/configs/spine.conf" "/etc/"
+        log "正在恢复 Cacti 配置文件..."
+        [ -f "${temp_dir}/configs/db.php" ] && cp "${temp_dir}/configs/db.php" "/etc/cacti/"
+        [ -f "${temp_dir}/configs/spine.conf" ] && cp "${temp_dir}/configs/spine.conf" "/etc/"
 
-            # 8. 修复文件权限
-            log "正在修复文件权限..."
-            chown -R apache:apache /var/lib/cacti/rra
-            chown -R apache:apache /usr/share/cacti
-            # db.php 的权限已在前面步骤中设置
+        log "正在修复文件权限..."
+        chown -R apache:apache /var/lib/cacti/rra
+        chown -R apache:apache /usr/share/cacti
+        chown -R apache:apache /etc/cacti
 
-            green "🎉 Cacti 精准恢复成功！"
-            log "Cacti 精准恢复成功。"
-        else
-            red "❌ 数据库恢复失败！请检查日志。"
-            log "数据库恢复失败。"
-        fi
+        green "🎉 Cacti 精准恢复成功！"
+        log "Cacti 精准恢复成功。"
     else
-        red "❌ 无法连接或操作数据库！请检查从备份中恢复的 db.php 凭据。"
-        log "无法连接或操作数据库。"
+        red "❌ 数据库恢复失败！请检查日志或脚本配置区的数据库凭据。"
+        log "数据库恢复失败。"
     fi
     rm -rf "$temp_dir"
     
-    # 9. 启动服务
     start_services
     
     echo ""
@@ -334,7 +294,7 @@ perform_restore() {
 }
 
 
-# --- 功能4: Cacti 精准卸载 (优化版) ---
+# --- 功能4: Cacti 精准卸载 (安全版) ---
 uninstall_cacti() {
     clear
     red "=================================================="
@@ -355,7 +315,6 @@ uninstall_cacti() {
         return
     fi
 
-    # 1. 最后一次备份
     log "===== 开始执行卸载前的最后一次备份 ====="
     if check_dependencies; then
         local timestamp=$(date "+%Y%m%d_%H%M%S")
@@ -394,40 +353,33 @@ uninstall_cacti() {
         return
     fi
 
-    # 2. 执行精准卸载
     log "===== 开始执行 Cacti 精准卸载 ====="
     
-    # 【修复】停止并禁用核心服务 (不再操作 crond 服务)
+    # 【安全修复】不再操作 crond 服务
     log "正在停止并禁用核心服务 (httpd, mariadb)..."
     systemctl stop httpd mariadb >/dev/null 2>&1
     systemctl disable httpd mariadb >/dev/null 2>&1
     log "核心服务已停止并禁用。"
 
-    # 卸载所有相关的软件包
     log "正在卸载 Cacti 及其 LAMP 环境软件包..."
     dnf remove -y cacti cacti-spine httpd mariadb-server php php-common php-cli php-mysqlnd php-gd php-ldap php-odbc php-pdo php-pecl-zip php-snmp php-xml php-mbstring net-snmp net-snmp-utils rrdtool epel-release remi-release >/dev/null 2>&1
     log "主要软件包卸载完成。"
 
-    # 自动清理不再需要的依赖
     log "正在自动清理不再需要的依赖包..."
     dnf autoremove -y >/dev/null 2>&1
     log "依赖包清理完成。"
 
-    # 删除残留的文件和目录
     log "正在清理 Cacti 和 LAMP 环境的残留文件和目录..."
     rm -rf /var/lib/cacti
     rm -rf /usr/share/cacti
     rm -rf /etc/cacti
     rm -rf /etc/spine.conf
     rm -rf /etc/httpd/conf.d/cacti.conf
-    # 确保删除 Cacti 的 cron job，但不影响系统 crond 服务
-    rm -rf /etc/cron.d/cacti
+    rm -rf /etc/cron.d/cacti # 只删除 Cacti 的定时任务
     rm -rf /var/log/cacti
-    # --- 彻底删除 MariaDB/MySQL 相关文件 ---
     rm -rf /var/lib/mysql
     rm -rf /etc/my.cnf
     rm -rf /etc/my.cnf.d
-    # --- 彻底删除 PHP 相关配置 ---
     rm -rf /etc/php.ini
     rm -rf /etc/php.d
     log "残留文件清理完成。"
@@ -445,11 +397,9 @@ uninstall_cacti() {
 
 # --- 功能5: 自动安装快捷方式 ---
 install_alias() {
-    # 定义目标路径
     local script_dest="/usr/local/sbin/cacti-manager.sh"
     local alias_dest="/usr/local/bin/cacti"
 
-    # 检查是否已经安装
     if [ -L "$alias_dest" ] && [ -f "$script_dest" ]; then
         log_quiet "快捷方式 'cacti' 已存在，跳过安装。"
         return 0
@@ -457,19 +407,15 @@ install_alias() {
 
     blue "=== 正在为脚本创建系统快捷方式... ==="
     
-    # 获取当前脚本的绝对路径
     local current_script_path=$(realpath "$0")
     
-    # 复制脚本到标准位置
     if ! cp "$current_script_path" "$script_dest"; then
         red "❌ 复制脚本到 $script_dest 失败！"
         return 1
     fi
     
-    # 确保脚本有执行权限
     chmod 700 "$script_dest"
     
-    # 创建软链接作为快捷方式
     if ! ln -s "$script_dest" "$alias_dest"; then
         red "❌ 创建软链接 $alias_dest 失败！"
         return 1
@@ -487,10 +433,8 @@ self_update() {
     echo "              脚本静默更新"
     cyan "=================================================="
     
-    # 定义脚本的安装路径
     local script_path="/usr/local/sbin/cacti-manager.sh"
 
-    # 检查脚本是否已安装到标准位置
     if [ ! -f "$script_path" ]; then
         red "❌ 错误：未在 $script_path 找到已安装的脚本。"
         yellow "请先通过快捷方式安装脚本，或使用以下命令安装后再尝试更新："
@@ -504,7 +448,6 @@ self_update() {
     log "===== 开始执行脚本静默更新 ====="
     echo "正在从 $SCRIPT_URL 下载最新版本..."
 
-    # 使用 curl 下载新版本并直接覆盖旧版本
     if ! curl -sSL "$SCRIPT_URL" -o "$script_path"; then
         red "❌ 下载脚本失败！请检查网络连接或 URL 是否正确。"
         log "脚本更新失败：下载失败。"
@@ -514,7 +457,6 @@ self_update() {
         return
     fi
 
-    # 确保新脚本仍然有执行权限
     chmod 700 "$script_path"
 
     green "🎉 脚本更新成功！"
@@ -526,7 +468,6 @@ self_update() {
     bold "=================================================="
     echo ""
     
-    # 退出当前脚本，让用户手动重启
     exit 0
 }
 
@@ -535,7 +476,7 @@ self_update() {
 main_menu() {
     clear
     blue "=================================================="
-    green "           Cacti 一站式管理工具箱 "
+    green "           Cacti 一站式管理工具箱 (最终版)"
     blue "=================================================="
     echo " (1) 安装 Cacti"
     echo " (2) 备份 Cacti "
@@ -571,11 +512,8 @@ if [ "$(id -u)" -ne 0 ]; then
     exit 1
 fi
 
-# 确保日志目录存在
 mkdir -p "$BACKUP_DIR"
 
-# 自动安装快捷方式
 install_alias
 
-# 启动主菜单
 main_menu
