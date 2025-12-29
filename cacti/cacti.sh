@@ -29,7 +29,7 @@ DB_SERVICE="mariadb"
 BACKUP_DIR="/backup/cacti"
 LOG_FILE="${BACKUP_DIR}/cacti_backup_restore.log"
 SCRIPT_URL="https://raw.githubusercontent.com/bi4nbn/zabbix/refs/heads/main/cacti/cacti.sh"
-SCRIPT_VERSION="0.2"
+SCRIPT_VERSION="0.3" # <-- 版本号已更新
 # =================================================================
 
 # --- 颜色和日志函数 ---
@@ -427,7 +427,7 @@ install_alias() {
     log "快捷方式 'cacti' 已成功安装。"
 }
 
-# --- 功能6: 静默更新 (两步接力最终版) ---
+# --- 功能6: 静默更新 (最终修复版) ---
 self_update() {
     clear
     cyan "=================================================="
@@ -496,8 +496,9 @@ self_update() {
     # 1. 等待用户按键，确保他们看到了提示信息。
     read -n 1 -s -r
     
-    # 2. 向标准输出打印一条命令。这条命令会显示在用户的终端上。
-    echo "$alias_path"
+    # 2. 向标准输出打印一条命令，该命令会先清除缓存再执行新脚本。
+    #    这条命令会显示在用户的终端上。
+    echo "hash -d cacti 2>/dev/null; $alias_path"
     
     # 3. 退出当前脚本。
     exit 0
