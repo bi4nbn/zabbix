@@ -426,7 +426,7 @@ install_alias() {
     log "快捷方式 'cacti' 已成功安装。"
 }
 
-# --- 功能6: 静默更新 ---
+# --- 功能6: 静默更新 (最终修复版) ---
 self_update() {
     clear
     cyan "=================================================="
@@ -435,8 +435,9 @@ self_update() {
     
     local script_path="/usr/local/sbin/cacti-manager.sh"
 
+    # 检查脚本是否已通过快捷方式安装
     if [ ! -f "$script_path" ]; then
-        red "❌ 错误：未在 $script_path 找到已安装的脚本。"
+        red "❌ 错误：未在 '$script_path' 找到已安装的脚本。"
         yellow "请先通过快捷方式安装脚本，或使用以下命令安装后再尝试更新："
         echo "  curl -sSL -o cacti.sh $SCRIPT_URL && chmod +x cacti.sh && ./cacti.sh"
         echo ""
@@ -448,29 +449,61 @@ self_update() {
     log "===== 开始执行脚本静默更新 ====="
     echo "正在从 $SCRIPT_URL 下载最新版本..."
 
-    if ! curl -sSL "$SCRIPT_URL" -o "$script_path"; then
+    # 1. 创建一个临时文件来存放新版本
+    local temp_file
+    temp_file=$(mktemp)
+
+    # 2. 下载新版本到临时文件
+    if ! curl -sSL "$SCRIPT_URL" -o "$temp_file"; then
         red "❌ 下载脚本失败！请检查网络连接或 URL 是否正确。"
         log "脚本更新失败：下载失败。"
+        rm -f "$temp_file" # 清理失败的临时文件
         echo ""
         read -n 1 -s -r -p "按任意键返回主菜单..."
         main_menu
         return
     fi
 
+    # 3. 检查下载的文件是否为有效的脚本（可选，但更健壮）
+    if ! head -n 1 "$temp_file" | grep -q "^#!/bin/bash"; then
+        red "❌ 错误：下载的文件不是一个有效的 Bash 脚本。"
+        log "脚本更新失败：下载的文件无效。"
+        rm -f "$temp_file"
+        echo ""
+        read -n 1 -s -r -p "按任意键返回主菜单..."
+        main_menu
+        return
+    fi
+
+    # 4. 用临时文件覆盖旧的脚本文件
+    log "下载成功，正在覆盖旧版本..."
+    if ! mv "$temp_file" "$script_path"; then
+        red "❌ 覆盖旧脚本文件失败！请检查文件权限。"
+        log "脚本更新失败：覆盖文件失败。"
+        rm -f "$temp_file"
+        echo ""
+        read -n 1 -s -r -p "按任意键返回主菜单..."
+        main_menu
+        return
+    fi
+
+    # 5. 确保新脚本有执行权限
     chmod 700 "$script_path"
+    log "脚本权限已设置。"
 
     green "🎉 脚本更新成功！"
     log "脚本已成功更新到最新版本。"
     
     echo ""
     bold "=================================================="
-    bold "  请在终端中重新输入 'cacti' 命令以运行新版本。"
+    bold "  正在重新启动最新版本的脚本..."
     bold "=================================================="
     echo ""
     
-    exit 0
+    # 6. 【核心】使用 exec 命令用新版本脚本替换当前进程
+    #    这会无缝地重启脚本，用户会立刻看到新版本的菜单
+    exec "$script_path"
 }
-
 
 # --- 主菜单 ---
 main_menu() {
