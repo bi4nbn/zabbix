@@ -509,7 +509,7 @@ self_update() {
 main_menu() {
     clear
     blue "=================================================="
-    green "           Cacti 一站式管理工具箱 Ver0.1"
+    green "           Cacti 一站式管理工具箱 Ver0.2"
     blue "=================================================="
     echo " (1) 安装 Cacti"
     echo " (2) 备份 Cacti "
