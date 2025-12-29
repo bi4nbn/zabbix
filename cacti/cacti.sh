@@ -427,7 +427,7 @@ install_alias() {
     log "快捷方式 'cacti' 已成功安装。"
 }
 
-# --- 功能6: 静默更新 (最终无交互版) ---
+# --- 功能6: 静默更新 (重建快捷方式版) ---
 self_update() {
     clear
     cyan "=================================================="
@@ -435,6 +435,7 @@ self_update() {
     cyan "=================================================="
     
     local script_path="/usr/local/sbin/cacti-manager.sh"
+    local alias_path="/usr/local/bin/cacti"
 
     if [ ! -f "$script_path" ]; then
         red "❌ 错误：未在 '$script_path' 找到已安装的脚本。"
@@ -452,8 +453,7 @@ self_update() {
     temp_file=$(mktemp)
 
     if ! curl -sSL "$SCRIPT_URL" -o "$temp_file"; then
-        red "❌ 下载脚本失败！请检查网络连接或 URL。"
-        log "脚本更新失败：下载失败。"
+        red "❌ 下载脚本失败！"
         rm -f "$temp_file"
         echo ""
         read -n 1 -s -r -p "按任意键返回主菜单..."
@@ -462,8 +462,7 @@ self_update() {
     fi
 
     if ! head -n 1 "$temp_file" | grep -q "^#!/bin/bash"; then
-        red "❌ 错误：下载的文件不是一个有效的 Bash 脚本。"
-        log "脚本更新失败：文件无效。"
+        red "❌ 错误：下载的文件无效。"
         rm -f "$temp_file"
         echo ""
         read -n 1 -s -r -p "按任意键返回主菜单..."
@@ -473,9 +472,7 @@ self_update() {
 
     log "下载成功，正在覆盖旧版本..."
     if ! mv "$temp_file" "$script_path"; then
-        red "❌ 覆盖旧脚本文件失败！请检查文件权限。"
-        log "脚本更新失败：覆盖文件失败。"
-        rm -f "$temp_file"
+        red "❌ 覆盖旧脚本文件失败！"
         echo ""
         read -n 1 -s -r -p "按任意键返回主菜单..."
         main_menu
@@ -485,21 +482,23 @@ self_update() {
     chmod 700 "$script_path"
     log "脚本权限已设置。"
 
-    # --- 核心改动在这里 ---
-    clear # 清屏，让成功信息更醒目
-    green "🎉 脚本已成功更新到最新版本！"
+    # --- 核心改动：删除并重建快捷方式 ---
+    log "正在重建快捷方式..."
+    rm -f "$alias_path" # 强制删除旧的快捷方式
+    ln -s "$script_path" "$alias_path" # 创建新的快捷方式
+
+    green "🎉 脚本已成功更新！"
     log "脚本已成功更新到最新版本。"
     
     echo ""
     bold "=================================================="
-    bold "  操作指南："
-    bold ""
-    bold "  脚本已退出。请在您的终端中重新输入 'cacti' "
-    bold "  以启动最新版本的程序。"
+    bold "  更新完成！"
+    bold "  快捷方式已重建。请在终端中重新输入 'cacti' "
+    bold "  以启动最新版本。"
     bold "=================================================="
     echo ""
     
-    # 直接退出，无需任何用户交互
+    # 自动退出
     exit 0
 }
 
