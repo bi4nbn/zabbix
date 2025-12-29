@@ -1,6 +1,6 @@
 #!/bin/bash
 ##############################################################################
-# Cacti 一站式管理脚本 (最终版)
+# Cacti 一站式管理脚本 (精简版)
 # 功能:
 #   1. 【集成安装】通过官方脚本一键安装 Cacti。
 #   2. 【最简化备份】备份数据库、RRD文件、程序和核心配置。
@@ -9,11 +9,9 @@
 #   4. 【精准卸载】仅卸载 Cacti 及其 LAMP 运行环境，不影响系统其他部分。
 #      - 安全卸载：不会禁用系统级 crond 服务。
 #      - 彻底清理：删除 MariaDB/MySQL、PHP、Apache 等相关程序和配置。
-#   5. 【静默更新】输入选项 '5' 后直接从指定 URL 下载并更新脚本。
-#   6. 【持久化菜单】操作完成后返回主菜单，方便连续管理。
-#   7. 【详细日志】所有操作记录在 /backup/cacti/cacti_backup_restore.log。
-#   8. 【简洁输出】屏幕只显示关键信息，过程细节记录在日志中。
-#   9. 【自动快捷方式】首次运行后，自动创建 'cacti' 命令，方便后续调用。
+#   5. 【持久化菜单】操作完成后返回主菜单，方便连续管理。
+#   6. 【详细日志】所有操作记录在 /backup/cacti/cacti_backup_restore.log。
+#   7. 【简洁输出】屏幕只显示关键信息，过程细节记录在日志中。
 #
 # ⚠️  安全警告:
 #   - 脚本包含数据库密码明文，且执行 root 权限操作。
@@ -28,8 +26,7 @@ DB_PASS="cactiuser"
 DB_SERVICE="mariadb"
 BACKUP_DIR="/backup/cacti"
 LOG_FILE="${BACKUP_DIR}/cacti_backup_restore.log"
-SCRIPT_URL="https://raw.githubusercontent.com/bi4nbn/zabbix/refs/heads/main/cacti/cacti.sh"
-SCRIPT_VERSION="0.11" # <-- 版本号已更新
+SCRIPT_VERSION="0.12" # <-- 版本号已更新以反映精简
 # =================================================================
 
 # --- 颜色和日志函数 ---
@@ -395,89 +392,6 @@ uninstall_cacti() {
     main_menu
 }
 
-# --- 功能5: 静默更新 (最终、最可靠版) ---
-self_update() {
-    clear
-    cyan "=================================================="
-    echo "              脚本静默更新"
-    cyan "=================================================="
-    
-    local target_script="/usr/local/bin/cacti"
-
-    log "===== 开始执行脚本静默更新 ====="
-    
-    # 检查 SCRIPT_URL 是否已定义
-    if [ -z "$SCRIPT_URL" ]; then
-        red "❌ 错误：更新URL (SCRIPT_URL) 未在脚本中配置。"
-        log "脚本更新失败：SCRIPT_URL 变量为空。"
-        echo ""
-        read -n 1 -s -r -p "按任意键返回主菜单..."
-        main_menu
-        return
-    fi
-
-    local download_url="${SCRIPT_URL}?$(date +%s)"
-    echo "正在从 $SCRIPT_URL 下载最新版本..."
-
-    local temp_file=$(mktemp)
-    
-    # 使用更健壮的 curl 命令
-    if ! curl --connect-timeout 10 --max-time 30 -sSLf "$download_url" -o "$temp_file"; then
-        red "❌ 下载脚本失败！请检查网络或 URL。"
-        log "脚本更新失败：curl 下载失败，URL: $download_url"
-        rm -f "$temp_file"
-        echo ""
-        read -n 1 -s -r -p "按任意键返回主菜单..."
-        main_menu
-        return
-    fi
-
-    # 验证下载的文件
-    if ! head -n 1 "$temp_file" | grep -q "^#!/bin/bash"; then
-        red "❌ 错误：下载的文件不是一个有效的 Bash 脚本。"
-        log "脚本更新失败：文件无效或已损坏。"
-        rm -f "$temp_file"
-        echo ""
-        read -n 1 -s -r -p "按任意键返回主菜单..."
-        main_menu
-        return
-    fi
-
-    log "下载成功，正在用新版本覆盖主程序..."
-    
-    # 覆盖文件
-    if ! cat "$temp_file" > "$target_script"; then
-        red "❌ 替换主程序文件 $target_script 失败！"
-        log "脚本更新失败：替换主程序文件失败。"
-        rm -f "$temp_file"
-        echo ""
-        read -n 1 -s -r -p "按任意键返回主菜单..."
-        main_menu
-        return
-    fi
-    
-    rm -f "$temp_file"
-
-    # 确保权限
-    chmod 700 "$target_script"
-    log "新程序权限已设置为 700。"
-
-    clear
-    green "🎉 程序已成功更新！"
-    log "程序已成功更新到最新版本。"
-    
-    echo ""
-    bold "=================================================="
-    bold "  !!! 更新完成，正在自动重启程序 !!!"
-    bold "=================================================="
-    echo ""
-    sleep 2
-
-    # --- 核心改动：使用 exec 命令实现无缝重启 ---
-    # 这行命令会用新的脚本进程替换掉当前的旧脚本进程，完美解决问题。
-    exec "$target_script" "$@"
-}
-
 # --- 主菜单 ---
 main_menu() {
     clear
@@ -488,24 +402,22 @@ main_menu() {
     echo " (2) 备份 Cacti "
     echo " (3) 恢复 Cacti "
     echo " (4) 卸载 Cacti "
-    echo " (5) 更新脚本 "  
-    echo " (6) 退出"      
+    echo " (5) 退出"      # 选项已调整
     blue "=================================================="
-    read -p "请输入您的选择 [1-6]: " choice
+    read -p "请输入您的选择 [1-5]: " choice
 
     case $choice in
         1) install_cacti ;;
         2) perform_backup ;;
         3) perform_restore ;;
         4) uninstall_cacti ;;
-        5) self_update ;;
-        6)
+        5) # 选项已调整
             log "用户选择退出脚本。"
             green "感谢使用，再见！"
             exit 0
             ;;
         *)
-            red "无效的选项，请输入 1-6 之间的数字。"
+            red "无效的选项，请输入 1-5 之间的数字。"
             sleep 2
             main_menu
             ;;
@@ -520,39 +432,5 @@ fi
 
 mkdir -p "$BACKUP_DIR"
 
-# 【核心改动】移除 install_alias 函数，改为自安装逻辑
-# 如果脚本不是从 /usr/local/bin/cacti 运行的，则提示用户安装
-if [ "$(readlink -f "$0")" != "/usr/local/bin/cacti" ]; then
-    clear
-    yellow "=================================================="
-    echo "           欢迎使用 Cacti 一站式管理工具箱"
-    yellow "=================================================="
-    echo ""
-    blue "检测到脚本未安装在标准路径。"
-    echo "为方便您以后使用，建议将其安装为 'cacti' 命令。"
-    echo ""
-    
-    read -p "是否自动安装到 /usr/local/bin/cacti? (Y/n): " confirm
-    if [[ "$confirm" =~ ^[Yy]$ ]] || [ -z "$confirm" ]; then
-        if cp "$0" /usr/local/bin/cacti; then
-            chmod 700 /usr/local/bin/cacti
-            green "✅ 脚本安装成功！"
-            echo ""
-            bold "=================================================="
-            bold "  您现在可以在任何目录下输入 'cacti' 来运行此脚本。"
-            bold "=================================================="
-            echo ""
-            log "脚本已自动安装到 /usr/local/bin/cacti。"
-        else
-            red "❌ 安装失败！请检查您是否有 /usr/local/bin 目录的写入权限。"
-            log "脚本自动安装失败。"
-        fi
-    else
-        log "用户取消了脚本的自动安装。"
-    fi
-    
-    echo ""
-    read -n 1 -s -r -p "按任意键继续..."
-fi
-
+# 直接进入主菜单
 main_menu
