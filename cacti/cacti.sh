@@ -402,14 +402,13 @@ self_update() {
     echo "              脚本静默更新"
     cyan "=================================================="
     
-    # 【核心改动】更新目标就是脚本自身
+    # 更新目标就是脚本自身
     local target_script="/usr/local/bin/cacti"
 
     log "===== 开始执行脚本静默更新 ====="
     
-    # 添加时间戳参数以强制刷新 CDN 缓存
     local download_url="${SCRIPT_URL}?$(date +%s)"
-    echo "正在从 $SCRIPT_URL 下载最新版本 (强制刷新缓存)..."
+    echo "正在从 $SCRIPT_URL 下载最新版本..."
 
     local temp_file=$(mktemp)
     if ! curl -sSL "$download_url" -o "$temp_file"; then
@@ -457,16 +456,17 @@ self_update() {
     
     echo ""
     bold "=================================================="
-    bold "  更新完成！请手动重启程序。"
+    bold "  !!! 更新完成，请手动重启程序 !!!"
     bold ""
     bold "  操作步骤："
-    bold "  1. 按任意键退出当前程序。"
-    bold "  2. 在终端中输入 'cacti' 并按回车。"
-    bold "  3. 您将看到新版本的界面。"
+    bold "  1. 按任意键，当前脚本将退出。"
+    bold "  2. 您将返回到系统终端提示符。"
+    bold "  3. 在提示符后输入 'cacti' 并按回车。"
+    bold "  4. 您将看到新版本的界面。"
     bold "=================================================="
     echo ""
 
-    # 更新完成，直接退出
+    # --- 核心改动：直接退出，不再做任何形式的自动重启 ---
     read -n 1 -s -r
     exit 0
 }
