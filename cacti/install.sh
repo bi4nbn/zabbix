@@ -1,7 +1,7 @@
 #!/bin/bash
 ##############################################################################
 # Cacti + Spine 一键安装脚本 (AlmaLinux 9.x 专用 - 最终优化版)
-# 功能: 集成系统优化、动态数据库配置、时间同步、中文乱码修复等。
+# 功能: 集成系统优化、动态数据库配置、时间同步、中文乱码修复、Apache根目录重定向。
 ##############################################################################
 
 # ======================== 配置项（仅需修改此处）========================
@@ -169,7 +169,7 @@ basic_config() {
 
 # 步骤4：配置EPEL + Remi仓库
 repo_config() {
-    blue "=== 步骤3：配置EPEL + Remi仓库 ==="
+    blue "=== 步骤4：配置EPEL + Remi仓库 ==="
     if ! dnf install -y https://mirrors.aliyun.com/epel/epel-release-latest-9.noarch.rpm; then
         red "❌ EPEL仓库安装失败！"
         exit 1
@@ -198,6 +198,33 @@ httpd_install() {
     fi
 }
 
+# 步骤5.5：配置Apache根目录重定向到Cacti
+httpd_redirect_config() {
+    blue "=== 步骤5.5：配置Apache根目录重定向到Cacti ==="
+    local redirect_file="/etc/httpd/conf.d/redirects.conf"
+
+    # 检查文件是否已存在，如果存在则备份
+    if [ -f "$redirect_file" ]; then
+        cp "$redirect_file" "${redirect_file}.bak"
+        yellow "⚠️  已存在的 $redirect_file 文件已备份为 ${redirect_file}.bak"
+    fi
+
+    # 写入301重定向规则
+    echo "RedirectMatch 301 ^/$ /cacti/" > "$redirect_file"
+    
+    # 重启Apache使配置生效
+    systemctl restart httpd >/dev/null 2>&1
+
+    # 验证配置是否生效
+    if [ "$(systemctl is-active httpd)" = "active" ]; then
+        green "✅ Apache根目录重定向配置完成！"
+        green "   现在访问 http://$SERVER_IP 将会自动跳转到 http://$SERVER_IP/cacti/"
+    else
+        red "❌ Apache重启失败！请检查 $redirect_file 文件内容是否有误。"
+        exit 1
+    fi
+}
+
 # 步骤6：安装并配置PHP 8.3
 php_config() {
     blue "=== 步骤6：安装PHP 8.3并配置 ==="
@@ -212,7 +239,6 @@ php_config() {
     blue "=== 开始修改PHP.ini配置..."
     sed -i '/^memory_limit/ c\memory_limit = 512M' /etc/php.ini
     sed -i '/^max_execution_time/ c\max_execution_time = 60' /etc/php.ini
-    sed -i '/;*date.timezone/d' /etc/php.ini
     echo 'date.timezone = "Asia/Shanghai"' >> /etc/php.ini
 
     blue "=== 验证PHP配置 ==="
@@ -277,7 +303,7 @@ mariadb_config() {
         INNODB_BUFFER_POOL_MB=$((TOTAL_MEM_MB * 50 / 100))
         HEAP_TMP_TABLE_MB=$((TOTAL_MEM_MB * 10 / 100))
     fi
-
+    
     # --- 为计算出的值设置合理的上下限 ---
     # innodb_buffer_pool_size 最小为 256MB
     [ "$INNODB_BUFFER_POOL_MB" -lt 256 ] && INNODB_BUFFER_POOL_MB=256
@@ -439,6 +465,7 @@ final_tips() {
     blue "=================================================="
     echo "核心访问/配置信息："
     green "1. Cacti访问地址：http://$SERVER_IP/cacti"
+    green "   或直接访问：http://$SERVER_IP (已配置自动重定向)"
     green "2. Cacti初始账号：admin / admin（登录后必须修改密码）"
     echo "3. 数据库信息："
     echo "   - MariaDB root密码：$DB_ROOT_PASS"
@@ -461,6 +488,7 @@ main() {
     basic_config
     repo_config
     httpd_install
+    httpd_redirect_config  # <--- 调用新增的重定向配置步骤
     php_config
     snmp_install
     mariadb_config
