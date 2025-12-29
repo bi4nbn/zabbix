@@ -6,15 +6,6 @@ curl -sL https://raw.githubusercontent.com/bi4nbn/zabbix/refs/heads/main/cacti/i
 ```
 
 
-
-### 支持操作系统
-1. **zabbix6.sh** 已支持 **centos 7(编译安装) / centos 8 / centos 9 / rocky linux 8 / rocky linux 9 / ubuntu 20.04 / ubuntu 22.04 / ubuntu 24.04 / debian 11 / debian 12**
-2. **zabbix7.sh** 已支持 **centos 8(强烈不推荐) / centos 9 / centos 10 / rocky linux 8 / rocky linux 9 / rocky linux 10 / ubuntu 22.04 / ubuntu 24.04 / debian 12 / almaLinux 8 / almaLinux 9 / almaLinux 10**
-3. **zabbix7.4.sh** 已支持 **centos 8(强烈不推荐) / centos 9 / centos 10 / rocky linux 8 / rocky linux 9 / rocky linux 10 / ubuntu 22.04 / ubuntu 24.04 / debian 12 / almaLinux 8 / almaLinux 9 / almaLinux 10**
-4. docker 部署已完成测试系统 **rocky linux 9 / ubuntu 24.04**
-5. **openeuler.sh** 已支持 **openeuler 22.03 / openeuler 24.03**
-
-
 ### zabbix 7.4 食用方法
 1. centos 8（强烈不推荐） / centos 9 / centos 10 / rocky linux 8 / rocky linux 9 / rocky linux 10 / ubuntu 22.04 / ubuntu 24.04 / debian 12 / almaLinux 8 / almaLinux 9 / almaLinux 10
 ```shell
