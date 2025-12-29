@@ -423,7 +423,7 @@ install_alias() {
     log "独立启动文件 'cacti' 已成功安装。"
 }
 
-# --- 功能6: 静默更新 (终极缓存对抗版) ---
+# --- 功能6: 静默更新 (最终、最可靠版) ---
 self_update() {
     clear
     cyan "=================================================="
@@ -436,9 +436,8 @@ self_update() {
     log "===== 开始执行脚本静默更新 ====="
     
     local download_url="${SCRIPT_URL}?$(date +%s)"
-    echo "正在从 $SCRIPT_URL 下载最新版本 (强制刷新缓存)..."
+    echo "正在从 $SCRIPT_URL 下载最新版本..."
 
-    # 下载到一个临时文件
     local temp_file=$(mktemp)
     if ! curl -sSL "$download_url" -o "$temp_file"; then
         red "❌ 下载脚本失败！请检查网络连接或 URL。"
@@ -460,41 +459,12 @@ self_update() {
         return
     fi
 
-    log "下载成功，正在使用原子操作替换脚本文件..."
+    log "下载成功，正在替换脚本文件..."
     
-    # --- 核心改动 1: 使用 mv 进行原子替换 ---
-    # 这比 cat 重定向更能对抗文件系统缓存
-    if ! mv "$temp_file" "$script_path"; then
-        red "❌ 替换主脚本文件 $script_path 失败！"
-        log "脚本更新失败：替换主脚本文件失败。"
-        rm -f "$temp_file"
-        echo ""
-        read -n 1 -s -r -p "按任意键返回主菜单..."
-        main_menu
-        return
-    fi
-
-    # 再次下载一个副本用于更新 alias 文件
-    local temp_file_alias=$(mktemp)
-    if ! curl -sSL "$download_url" -o "$temp_file_alias"; then
-        red "❌ 下载 alias 文件副本失败！"
-        log "脚本更新失败：下载 alias 文件副本失败。"
-        rm -f "$temp_file_alias"
-        echo ""
-        read -n 1 -s -r -p "按任意键返回主菜单..."
-        main_menu
-        return
-    fi
-    
-    if ! mv "$temp_file_alias" "$alias_path"; then
-        red "❌ 替换 alias 文件 $alias_path 失败！"
-        log "脚本更新失败：替换 alias 文件失败。"
-        rm -f "$temp_file_alias"
-        echo ""
-        read -n 1 -s -r -p "按任意键返回主菜单..."
-        main_menu
-        return
-    fi
+    # 使用 cat 重定向，这是一个简单可靠的覆盖方式
+    cat "$temp_file" > "$script_path"
+    cat "$temp_file" > "$alias_path"
+    rm -f "$temp_file"
 
     chmod 700 "$script_path"
     chmod 700 "$alias_path"
@@ -506,16 +476,18 @@ self_update() {
     
     echo ""
     bold "=================================================="
-    bold "  正在等待系统缓存刷新，并重启最新版本的脚本..."
+    bold "  更新完成！请手动重启脚本。"
+    bold ""
+    bold "  操作步骤："
+    bold "  1. 按任意键退出当前脚本。"
+    bold "  2. 在终端中输入 'cacti' 并按回车。"
+    bold "  3. 您将看到新版本的界面。"
     bold "=================================================="
     echo ""
-    
-    # --- 核心改动 2: 加入短暂延迟 ---
-    # 给系统内核一点时间，让它意识到文件已经被修改
-    sleep 2
 
-    # 使用 exec 启动一个全新的进程来执行更新后的脚本
-    exec bash -c "$alias_path"
+    # --- 核心改动：直接退出，不再尝试任何形式的自动重启 ---
+    read -n 1 -s -r
+    exit 0
 }
 
 # --- 主菜单 ---
