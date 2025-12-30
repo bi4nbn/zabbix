@@ -161,7 +161,7 @@ basic_config() {
     if ls -l /etc/rc.d/rc.local | grep -q 'x'; then
         green "✅ /etc/rc.d/rc.local 已添加可执行权限"
     else
-        yellow "⚠️  rc.local权限设置警告，请手动执行：chmod +x /etc/rc.d/rc.local"
+        yellow "⚠️  /etc/rc.d/rc.local 权限添加失败，请手动执行：chmod +x /etc/rc.d/rc.local"
     fi
 }
 
@@ -321,8 +321,10 @@ mariadb_config() {
     echo "   - join_buffer_size        = ${JOIN_BUFFER_SIZE}"
     echo "   - sort_buffer_size        = ${SORT_BUFFER_SIZE}"
 
-    # --- 后续配置与之前版本相同 ---
+    # --- 修复后的配置写入逻辑 ---
     cp /etc/my.cnf /etc/my.cnf.bak 2>/dev/null
+    
+    # 1. 先写入基础配置
     cat > /etc/my.cnf << EOF
 [mysqld]
 character-set-server = utf8mb4
@@ -351,6 +353,7 @@ innodb_read_io_threads = 4
 innodb_write_io_threads = 4
 EOF
 
+    # 2. 根据变量判断是否追加时区配置
     if [ "$SET_MYSQL_TIMEZONE" = "yes" ]; then
         echo "default-time-zone = \"+08:00\"" >> /etc/my.cnf
         green "✅ 已显式设置MySQL全局时区为 '+08:00'"
@@ -362,10 +365,25 @@ EOF
         exit 1
     fi
 
-    if ! mysql -u root -e "ALTER USER 'root'@'localhost' IDENTIFIED BY '$DB_ROOT_PASS';"; then
-        red "❌ MariaDB root密码设置失败！"
+    # 3. 使用 mysql_secure_installation 安全地设置root密码
+    blue "=== 正在设置MariaDB root密码 ==="
+    mysql_secure_installation <<EOF
+
+y
+$DB_ROOT_PASS
+$DB_ROOT_PASS
+y
+y
+y
+y
+EOF
+
+    # 4. 验证密码是否设置成功
+    if ! mysql -u root -p"$DB_ROOT_PASS" -e "SELECT 1;" >/dev/null 2>&1; then
+        red "❌ MariaDB root密码设置失败或验证失败！"
         exit 1
     fi
+    green "✅ MariaDB root密码设置成功！"
 
     if ! mysql_tzinfo_to_sql /usr/share/zoneinfo | mysql -u root -p"$DB_ROOT_PASS" mysql >/dev/null 2>&1; then
         yellow "⚠️  MySQL时区表加载警告"
@@ -464,7 +482,7 @@ final_tips() {
     green "🎉 Cacti + Spine 一键安装完成（AlmaLinux 9 + PHP 8.3）"
     blue "=================================================="
     echo "核心访问/配置信息："
-    green "1. Cacti访问地址：http://$SERVER_IP
+    green "1. Cacti访问地址：http://$SERVER_IP"
     green "2. Cacti初始账号：admin / admin（登录后必须修改密码）"
     echo "3. 数据库信息："
     echo "   - MariaDB root密码：$DB_ROOT_PASS"
