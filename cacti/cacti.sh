@@ -244,7 +244,7 @@ perform_restore() {
     main_menu
 }
 
-# --- 功能4: 终极卸载 Cacti ---
+# --- 功能4: 卸载 Cacti ---
 uninstall_cacti() {
     clear
     red "=================================================="
@@ -334,11 +334,6 @@ uninstall_cacti() {
     rm -rf /etc/php.ini
     rm -rf /etc/php.d
 
-    # 恢复防火墙
-    log "正在恢复防火墙设置..."
-    systemctl enable --now firewalld >/dev/null 2>&1
-    firewall-cmd --permanent --add-service=http >/dev/null 2>&1
-    firewall-cmd --reload >/dev/null 2>&1
 
     green "🎉 Cacti 终极卸载完成！"
     log "Cacti 终极卸载完成。"
@@ -362,7 +357,7 @@ main_menu() {
     echo "  (2) 备份 Cacti"
     echo "  (3) 恢复 Cacti"
     echo "  (4) 卸载 Cacti"
-    echo "  (5) 退出"
+    echo "  (5) 退出脚本"
     blue "=================================================="
     read -p "请输入您的选择 [1-5]: " choice
 
