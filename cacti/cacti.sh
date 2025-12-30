@@ -81,55 +81,25 @@ start_services() {
     log_quiet "服务已启动。"
 }
 
-# --- 功能1: 安装 Cacti (改进版) ---
+# --- 功能1: 安装 Cacti ---
 install_cacti() {
     clear
     blue "=================================================="
-    echo "              Cacti 一键安装 (安全模式)"
+    echo "              Cacti 一键安装"
     blue "=================================================="
-    yellow "⚠️  警告：此操作将下载脚本到本地，检查无误后再执行。"
+    yellow "⚠️  警告：此操作将从网络下载脚本并以 root 权限执行。"
     echo "安装脚本地址: https://raw.githubusercontent.com/bi4nbn/zabbix/refs/heads/main/cacti/install.sh"
     echo ""
     
-    read -p "是否继续? (y/N): " confirm
+    read -p "是否继续安装? (y/N): " confirm
     if [[ "$confirm" =~ ^[Yy]$ ]]; then
-        log "===== 开始下载 Cacti 安装脚本 ====="
-        
-        # 定义本地脚本文件名
-        local_script="cacti_installer.sh"
-        
-        # 使用 curl 下载脚本到本地
-        if curl -sSL -o "$local_script" "https://raw.githubusercontent.com/bi4nbn/zabbix/refs/heads/main/cacti/install.sh"; then
-            log "脚本下载成功，保存在 $local_script"
-            
-            # 检查脚本是否为空（下载失败可能导致空文件）
-            if [ -s "$local_script" ]; then
-                log "===== 脚本完整性检查通过，准备执行 ====="
-                
-                # 赋予执行权限
-                chmod +x "$local_script"
-                
-                # 执行本地脚本
-                if ./"$local_script"; then
-                    green "🎉 Cacti 安装脚本执行完毕！"
-                    log "Cacti 安装脚本执行成功。"
-                else
-                    red "❌ Cacti 安装脚本执行失败！请检查 $local_script 的输出。"
-                    log "Cacti 安装脚本执行失败。"
-                fi
-                
-                # 清理临时脚本文件
-                rm -f "$local_script"
-                log "已删除临时脚本文件 $local_script"
-
-            else
-                red "❌ 错误：下载的脚本文件是空的，可能是网络问题或URL无效。"
-                log "下载的脚本文件为空，安装中止。"
-                rm -f "$local_script" # 清理空文件
-            fi
+        log "===== 开始执行 Cacti 安装脚本 ====="
+        if curl -sL https://raw.githubusercontent.com/bi4nbn/zabbix/refs/heads/main/cacti/install.sh | bash; then
+            green "🎉 Cacti 安装脚本执行完毕！"
+            log "Cacti 安装脚本执行成功。"
         else
-            red "❌ 错误：下载脚本失败，请检查网络连接或URL是否正确。"
-            log "下载 Cacti 安装脚本失败。"
+            red "❌ Cacti 安装脚本执行失败！请检查日志或网络连接。"
+            log "Cacti 安装脚本执行失败。"
         fi
     else
         log "用户取消了 Cacti 安装操作。"
