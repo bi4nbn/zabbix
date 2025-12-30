@@ -2,7 +2,7 @@
 
 
 ```
-curl -sSL -o cacti.sh https://raw.githubusercontent.com/bi4nbn/zabbix/refs/heads/main/cacti/cacti.sh && chmod +x cacti.sh && ./cacti.sh
+curl -sSL -o cacti.sh https://raw.githubusercontent.com/bi4nbn/zabbix/refs/heads/main/cacti/cacti.sh && chmod +x cacti.sh && bash cacti.sh
 ```
 
 
