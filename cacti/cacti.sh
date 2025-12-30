@@ -417,10 +417,6 @@ uninstall_cacti() {
     green "🎉 Cacti 终极卸载完成！"
     log "Cacti 终极卸载完成。"
     
-    echo ""
-    yellow "⚠️  重要提示：SELinux 状态需要重启服务器才能从 'disabled' 恢复到 'enforcing'。"
-    yellow "   您可以使用 'getenforce' 命令检查当前状态，使用 'reboot' 命令重启。"
-    echo ""
     read -n 1 -s -r -p "按任意键返回主菜单..."
     main_menu
 }
