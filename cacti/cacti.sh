@@ -24,7 +24,7 @@ DB_SERVICE="mariadb"
 BACKUP_DIR="/backup/cacti"
 LOG_FILE="${BACKUP_DIR}/cacti_backup_restore.log"
 # =================================================================
-# =================================================================
+
 
 # --- 颜色和日志函数 ---
 red() { echo -e "\033[31m$1\033[0m"; }
@@ -94,7 +94,7 @@ install_cacti() {
     echo "              Cacti 一键安装"
     blue "=================================================="
     yellow "⚠️  警告：此操作将从网络下载脚本并以 root 权限执行。"
-    echo "安装脚本地址: https://raw.githubusercontent.com/bi4nbn/zabbix/refs/heads/main/cacti/install.sh"
+    echo ""
     echo ""
     
     read -p "是否继续安装? (y/N): " confirm
