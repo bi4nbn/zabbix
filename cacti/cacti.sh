@@ -319,12 +319,12 @@ uninstall_cacti() {
     
     # 停止所有相关服务
     log "正在停止所有相关服务..."
-    systemctl stop httpd mariadb snmpd chronyd crond >/dev/null 2>&1
-    systemctl disable httpd mariadb snmpd chronyd crond >/dev/null 2>&1
+    systemctl stop httpd mariadb snmpd  >/dev/null 2>&1
+    systemctl disable httpd mariadb snmpd  >/dev/null 2>&1
 
     # 卸载所有相关的包
     log "正在卸载所有相关软件包..."
-    dnf remove -y cacti cacti-spine httpd mariadb-server php\* net-snmp\* rrdtool\* epel-release remi-release\* chrony >/dev/null 2>&1
+    dnf remove -y cacti cacti-spine httpd mariadb-server php\* net-snmp\* rrdtool\* >/dev/null 2>&1
     # 清理不再需要的依赖
     dnf autoremove -y >/dev/null 2>&1
 
