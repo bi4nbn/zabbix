@@ -81,26 +81,49 @@ start_services() {
     log_quiet "服务已启动。"
 }
 
-# --- 功能1: 安装 Cacti ---
+# --- 功能1: 安装 Cacti (已优化) ---
 install_cacti() {
     clear
     blue "=================================================="
     echo "              Cacti 一键安装"
     blue "=================================================="
     yellow "⚠️  警告：此操作将从网络下载脚本并以 root 权限执行。"
-    echo ""
+    echo "安装脚本地址: https://raw.githubusercontent.com/bi4nbn/zabbix/refs/heads/main/cacti/install.sh"
     echo ""
     
     read -p "是否继续安装? (y/N): " confirm
     if [[ "$confirm" =~ ^[Yy]$ ]]; then
         log "===== 开始执行 Cacti 安装脚本 ====="
-        if curl -sL https://raw.githubusercontent.com/bi4nbn/zabbix/refs/heads/main/cacti/install.sh | bash; then
-            green "🎉 Cacti 安装脚本执行完毕！"
-            log "Cacti 安装脚本执行成功。"
+        
+        # 1. 定义一个临时文件路径来存放下载的脚本
+        local temp_script=$(mktemp)
+        
+        echo "正在下载安装脚本..."
+        # 2. 使用 curl -f 选项，如果HTTP请求失败(如404, 500)，curl会直接返回非零退出码
+        if ! curl -sSLf "https://raw.githubusercontent.com/bi4nbn/zabbix/refs/heads/main/cacti/install.sh" -o "$temp_script"; then
+            red "❌ 下载安装脚本失败！请检查网络连接或URL是否正确。"
+            log "Cacti 安装脚本下载失败。"
+            rm -f "$temp_script" # 清理临时文件
         else
-            red "❌ Cacti 安装脚本执行失败！请检查日志或网络连接。"
-            log "Cacti 安装脚本执行失败。"
+            # 3. 检查下载的文件是否为空
+            if [ ! -s "$temp_script" ]; then
+                red "❌ 下载的安装脚本为空！安装已中止。"
+                log "下载的安装脚本为空。"
+                rm -f "$temp_script" # 清理临时文件
+            else
+                green "✅ 安装脚本下载成功，正在执行..."
+                # 4. 执行本地的、完整的脚本文件
+                if bash "$temp_script"; then
+                    green "🎉 Cacti 安装脚本执行完毕！"
+                    log "Cacti 安装脚本执行成功。"
+                else
+                    red "❌ Cacti 安装脚本执行失败！请检查 $LOG_FILE 了解详情。"
+                    log "Cacti 安装脚本执行失败。"
+                fi
+            fi
         fi
+        # 5. 无论成功与否，都清理临时文件
+        rm -f "$temp_script"
     else
         log "用户取消了 Cacti 安装操作。"
         echo "安装已取消。"
