@@ -413,9 +413,7 @@ uninstall_cacti() {
     rm -rf /etc/php.ini
     rm -rf /etc/php.d
 
-
-    green "🎉 Cacti 终极卸载完成！"
-    log "Cacti 终极卸载完成。"
+    log green "🎉 Cacti 终极卸载完成！"
     
     read -n 1 -s -r -p "按任意键返回主菜单..."
     main_menu
