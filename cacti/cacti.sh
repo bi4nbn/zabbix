@@ -125,8 +125,8 @@ perform_backup() {
     fi
 
     log "===== 开始执行全量备份 ====="
-    local timestamp=$(date "+%Y%m%d_%H%M%S")
-    local backup_filename="cacti_full_backup_${timestamp}.tar.gz"
+    local timestamp=$(date "+%Y%m%d_%H:%M:%S")
+    local backup_filename="cacti_backup_${timestamp}.tar.gz"
     local full_backup_path="${BACKUP_DIR}/${backup_filename}"
     local temp_dir=$(mktemp -d)
 
