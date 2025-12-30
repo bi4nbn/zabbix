@@ -156,7 +156,7 @@ perform_backup() {
         mkdir -p "${temp_dir}/configs"
         cp -r /etc/httpd/conf.d "${temp_dir}/configs/" 2>> "$LOG_FILE"
         cp /etc/php.ini "${temp_dir}/configs/" 2>> "$LOG_FILE"
-        cp /etc/my.cnf "${temp_dir}/configs/" 2>> "$LOG_FILE"
+        #cp /etc/my.cnf "${temp_dir}/configs/" 2>> "$LOG_FILE" #数据库配置
 
         log "正在打包备份文件..."
         if tar -czf "$full_backup_path" -C "$temp_dir" . >> "$LOG_FILE" 2>&1; then
@@ -237,7 +237,7 @@ perform_restore() {
             log "正在恢复相关配置文件..."
             cp -r "${temp_dir}/configs/httpd_conf.d/"* "/etc/httpd/conf.d/" 2>> "$LOG_FILE"
             cp "${temp_dir}/configs/php.ini" "/etc/" 2>> "$LOG_FILE"
-            cp "${temp_dir}/configs/my.cnf" "/etc/" 2>> "$LOG_FILE"
+            #cp "${temp_dir}/configs/my.cnf" "/etc/" 2>> "$LOG_FILE" #恢复数据库配置
             
             green "🎉 全量恢复成功！"
             log "全量恢复成功。"
@@ -338,7 +338,7 @@ uninstall_cacti() {
     rm -rf /etc/httpd/conf.d/redirects.conf
     rm -rf /etc/cron.d/cacti
     rm -rf /var/log/cacti
-    rm -rf /var/lib/mysql  # <--- 【关键】删除 MariaDB 数据目录，确保下次安装是全新的
+    rm -rf /var/lib/mysql  
     rm -rf /etc/my.cnf
     rm -rf /etc/my.cnf.d
     rm -rf /etc/php.ini
