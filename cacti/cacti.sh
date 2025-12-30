@@ -85,26 +85,21 @@ start_services() {
 install_cacti() {
     clear
     blue "=================================================="
-    echo "              Cacti 一键安装"
+    echo "              Cacti 一键安装脚本"
     blue "=================================================="
     yellow "⚠️  警告：此操作将从网络下载脚本并以 root 权限执行。"
     echo "安装脚本地址: https://raw.githubusercontent.com/bi4nbn/zabbix/refs/heads/main/cacti/install.sh"
     echo ""
     
-    read -p "是否继续安装? (y/N): " confirm
-    if [[ "$confirm" =~ ^[Yy]$ ]]; then
-        log "===== 开始执行 Cacti 安装脚本 ====="
-        if curl -sL https://raw.githubusercontent.com/bi4nbn/zabbix/refs/heads/main/cacti/install.sh | bash; then
-            green "🎉 Cacti 安装脚本执行完毕！"
-            log "Cacti 安装脚本执行成功。"
-        else
-            red "❌ Cacti 安装脚本执行失败！请检查日志或网络连接。"
-            log "Cacti 安装脚本执行失败。"
-        fi
+    log "===== 开始执行 Cacti 安装脚本 ====="
+    if curl -sL https://raw.githubusercontent.com/bi4nbn/zabbix/refs/heads/main/cacti/install.sh | bash; then
+        green "🎉 Cacti 安装脚本执行完毕！"
+        log "Cacti 安装脚本执行成功。"
     else
-        log "用户取消了 Cacti 安装操作。"
-        echo "安装已取消。"
+        red "❌ Cacti 安装脚本执行失败！请检查日志或网络连接。"
+        log "Cacti 安装脚本执行失败。"
     fi
+    
     echo ""
     read -n 1 -s -r -p "按任意键返回主菜单..."
     main_menu
