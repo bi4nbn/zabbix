@@ -164,7 +164,7 @@ perform_backup() {
     main_menu
 }
 
-# --- 功能3: 恢复 Cacti ---
+# --- 功能3: 恢复 Cacti (优化版) ---
 perform_restore() {
     clear
     blue "=================================================="
@@ -178,7 +178,9 @@ perform_restore() {
         return
     fi
 
-    mapfile -t BACKUP_FILES < <(ls -tp "${BACKUP_DIR}"/*.tar.gz 2>/dev/null | grep -v '/$' | sort -r)
+    # 查找所有备份文件并按时间倒序排序（最新的在前）
+    mapfile -t BACKUP_FILES < <(ls -tp "${BACKUP_DIR}"/*.tar.gz 2>/dev/null | grep -v '/$')
+    
     if [ ${#BACKUP_FILES[@]} -eq 0 ]; then
         red "❌ 错误：在 $BACKUP_DIR 目录中未找到任何备份文件。"
         echo ""
@@ -187,20 +189,97 @@ perform_restore() {
         return
     fi
 
-    echo "请选择要恢复的备份文件："
-    select selected_file in "${BACKUP_FILES[@]}" "取消"; do
-        if [ -n "$selected_file" ]; then
-            if [ "$selected_file" = "取消" ]; then
-                log "用户取消了恢复操作。"
-                main_menu
-                return
+    # --- 开始：优雅的文件选择逻辑 ---
+    local selected_file=""
+    local ITEMS_PER_PAGE=10
+    local current_page=0
+    local total_pages=$(( (${#BACKUP_FILES[@]} + ITEMS_PER_PAGE - 1) / ITEMS_PER_PAGE ))
+
+    while true; do
+        clear
+        blue "=================================================="
+        echo "              Cacti 全量恢复 - 选择备份"
+        blue "=================================================="
+        echo "📂 共找到 ${#BACKUP_FILES[@]} 个备份文件。 (第 $((current_page + 1)) / $total_pages 页)"
+        echo ""
+        
+        # 计算当前页要显示的文件索引范围
+        local start_index=$(( current_page * ITEMS_PER_PAGE ))
+        local end_index=$(( start_index + ITEMS_PER_PAGE - 1 ))
+        if [ $end_index -ge ${#BACKUP_FILES[@]} ]; then
+            end_index=$(( ${#BACKUP_FILES[@]} - 1 ))
+        fi
+
+        # 打印当前页的文件列表
+        local option_number=1
+        for ((i = start_index; i <= end_index; i++)); do
+            local file="${BACKUP_FILES[$i]}"
+            # 获取文件大小和修改时间
+            local file_size=$(du -h "$file" | cut -f1)
+            local file_date=$(date -r "$file" +"%Y-%m-%d %H:%M:%S")
+            printf "  [%d]  %-60s %8s  %s\n" "$option_number" "$(basename "$file")" "$file_size" "$file_date"
+            ((option_number++))
+        done
+
+        echo ""
+        blue "--------------------------------------------------"
+        echo "操作提示:"
+        echo "  输入数字选择文件 | 'n' 下一页 | 'p' 上一页 | 'q' 取消"
+        blue "--------------------------------------------------"
+        
+        read -p "请输入您的选择: " user_choice
+
+        # 处理用户输入
+        if [[ "$user_choice" =~ ^[0-9]+$ ]]; then
+            # 如果是数字，检查是否在当前页的有效范围内
+            if [ "$user_choice" -ge 1 ] && [ "$user_choice" -le $((end_index - start_index + 1)) ]; then
+                local selected_index=$(( start_index + user_choice - 1 ))
+                selected_file="${BACKUP_FILES[$selected_index]}"
+                break # 选择有效，跳出循环
+            else
+                red "\n⚠️  无效的数字，请输入当前页列出的选项。"
+                sleep 1.5
             fi
-            break
+        elif [[ "$user_choice" == "n" || "$user_choice" == "N" ]]; then
+            # 下一页
+            if [ $current_page -lt $((total_pages - 1)) ]; then
+                ((current_page++))
+            else
+                red "\n⚠️  已经是最后一页了。"
+                sleep 1.5
+            fi
+        elif [[ "$user_choice" == "p" || "$user_choice" == "P" ]]; then
+            # 上一页
+            if [ $current_page -gt 0 ]; then
+                ((current_page--))
+            else
+                red "\n⚠️  已经是第一页了。"
+                sleep 1.5
+            fi
+        elif [[ "$user_choice" == "q" || "$user_choice" == "Q" ]]; then
+            # 取消操作
+            log "用户取消了恢复操作。"
+            main_menu
+            return
         else
-            red "无效的选择，请重试。"
+            # 无效输入
+            red "\n⚠️  无效的输入，请重试。"
+            sleep 1.5
         fi
     done
+    # --- 结束：优雅的文件选择逻辑 ---
 
+    # 确认选择
+    echo ""
+    yellow "您选择恢复的文件是: $(basename "$selected_file")"
+    read -p "是否确认恢复此文件? (y/N): " confirm
+    if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
+        log "用户确认环节取消了恢复操作。"
+        main_menu
+        return
+    fi
+
+    # --- 恢复执行逻辑 (与原版相同) ---
     log "===== 开始执行全量恢复 ====="
     log "选择恢复的文件: $selected_file"
     local temp_dir=$(mktemp -d)
