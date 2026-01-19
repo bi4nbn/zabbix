@@ -258,7 +258,7 @@ php_config() {
 # 步骤7：安装SNMP + rrdtool
 snmp_install() {
     blue "=== 步骤7：安装SNMP/rrdtool ==="
-    if ! dnf install -y net-snmp net-snmp-utils net-snmp-libs rrdtool; then
+    if ! dnf install -y glibc-langpack-zh net-snmp net-snmp-utils net-snmp-libs rrdtool; then
         red "❌ SNMP/rrdtool安装失败！"
         exit 1
     fi
