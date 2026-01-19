@@ -169,11 +169,11 @@ basic_config() {
 # 步骤4：配置EPEL + Remi仓库
 repo_config() {
     blue "=== 步骤4：配置EPEL + Remi仓库 ==="
-    if ! dnf install -y https://mirrors.aliyun.com/epel/epel-release-latest-9.noarch.rpm; then
+    if ! dnf install -y https://mirrors.huaweicloud.com/epel/epel-release-latest-9.noarch.rpm; then
         red "❌ EPEL仓库安装失败！"
         exit 1
     fi
-    if ! dnf install -y https://mirrors.aliyun.com/remi/enterprise/remi-release-9.2.rpm; then
+    if ! dnf install -y https://mirrors.huaweicloud.com/remi/enterprise/remi-release-9.2.rpm; then
         red "❌ Remi仓库安装失败！"
         exit 1
     fi
