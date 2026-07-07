@@ -1,6 +1,6 @@
 #!/bin/bash
 ##############################################################################
-# Cacti + Spine 一键安装脚本 (AlmaLinux 9.x 专用 )
+# Cacti + Spine 一键安装脚本 (AlmaLinux 9.x 专用 修复MariaDB模块报错版)
 ##############################################################################
 
 # ======================== 配置项（仅需修改此处）========================
@@ -271,9 +271,15 @@ snmp_install() {
     fi
 }
 
-# 步骤8：安装并配置MariaDB（智能适应内存大小的最终版）
+# 步骤8：安装并配置MariaDB（修复模块报错版）
 mariadb_config() {
-    blue "=== 步骤8：安装并配置MariaDB（智能适应内存大小的最终版） ==="
+    blue "=== 步骤8：安装并配置MariaDB（智能适应内存大小） ==="
+    # 修复核心：启用mariadb 10.11稳定模块流
+    if ! dnf module enable mariadb:10.11 -y; then
+        red "❌ MariaDB模块流启用失败！"
+        exit 1
+    fi
+    # 安装mariadb服务组
     if ! dnf install -y @mariadb; then red "❌ MariaDB安装失败！"; exit 1; fi
 
     TOTAL_MEM_MB=$(free -m | awk '/^Mem:/ {print $2}')
@@ -513,5 +519,5 @@ main() {
     final_tips
 }
 
-# 启动主流程
-main
+# 启动主流程 
+main     
