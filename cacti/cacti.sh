@@ -3,12 +3,17 @@
 # Cacti 一站式管理脚本 (安装/备份/恢复/卸载)
 # 功能:
 #   1. 【集成安装】通过官方脚本一键安装 Cacti。
-#   2. 【全量备份】备份数据库、Cacti 核心配置文件、RRD 绘图数据（不包含 Web 服务器配置）。
+#   2. 【全量备份】备份数据库、Cacti 核心配置文件、RRD 绘图数据。
 #   3. 【安全恢复】恢复数据库、配置文件和 RRD 数据，兼容 Apache/Nginx。
+#       - 恢复前可修改数据库配置（库名/用户/密码）。
+#       - 恢复前可清理超过指定天数的旧备份。
 #   4. 【终极卸载】智能清理所有组件。
 #   5. 【持久化菜单】操作完成后返回主菜单。
 #   6. 【详细日志】记录所有操作。
 ##############################################################################
+
+set -e
+set -o pipefail
 
 # ======================== 【配置区】 ========================
 DB_NAME="cacti"
@@ -18,12 +23,14 @@ DB_SERVICE="mariadb"
 BACKUP_DIR="/backup/cacti"
 LOG_FILE="${BACKUP_DIR}/cacti_backup_restore.log"
 
-# 备份开关（默认备份 RRD，若空间不足可改为 false）
-BACKUP_RRD=true          # 是否备份 RRD 绘图数据（默认 true）
-CACTI_CONFIG_FILES=(      # 需要备份的核心配置文件（根据实际路径调整）
+BACKUP_RRD=true
+BACKUP_RETENTION_DAYS=30
+
+CACTI_CONFIG_FILES=(
     "/usr/share/cacti/include/config.php"
-    "/etc/cacti/spine.conf"
+    "/etc/spine.conf"
 )
+RRD_DIR="/usr/share/cacti/rra"
 # =================================================================
 
 # --- 颜色和日志函数 ---
@@ -34,8 +41,7 @@ blue() { echo -e "\033[34m$1\033[0m"; }
 
 log() {
     local timestamp=$(date "+%Y-%m-%d %H:%M:%S")
-    local message="[$timestamp] $1"
-    echo -e "$message" | tee -a "$LOG_FILE"
+    echo -e "[$timestamp] $1" | tee -a "$LOG_FILE"
 }
 
 log_quiet() {
@@ -43,7 +49,7 @@ log_quiet() {
     echo "[$timestamp] $1" >> "$LOG_FILE"
 }
 
-# --- Web 服务器检测（仅用于提示） ---
+# --- Web 服务器检测 ---
 detect_web_server() {
     if systemctl is-active --quiet nginx 2>/dev/null || command -v nginx &>/dev/null; then
         echo "nginx"
@@ -54,180 +60,255 @@ detect_web_server() {
     fi
 }
 
-# --- 依赖检查函数 ---
+# --- 依赖检查 ---
 check_dependencies() {
-    log_quiet "===== 开始检查依赖 ====="
-    local dependencies=("rsync" "tar" "mktemp" "systemctl" "curl")
+    log_quiet "===== 检查依赖 ====="
+    local dependencies=("rsync" "tar" "mktemp" "systemctl" "curl" "mysql" "mysqldump")
     local package_manager=""
-
-    if command -v dnf &> /dev/null; then package_manager="dnf"; fi
-    if command -v yum &> /dev/null; then package_manager="yum"; fi
-    
-    if [ -z "$package_manager" ]; then
-        red "❌ 错误：未找到包管理器 (yum/dnf)，无法自动安装依赖。"
-        return 1
-    fi
-    log_quiet "检测到包管理器: $package_manager"
-
+    command -v dnf &>/dev/null && package_manager="dnf"
+    command -v yum &>/dev/null && package_manager="yum"
+    [ -z "$package_manager" ] && { red "❌ 未找到包管理器。"; return 1; }
     for dep in "${dependencies[@]}"; do
-        if ! command -v "$dep" &> /dev/null; then
-            log "依赖 '$dep' 未安装，正在使用 $package_manager 进行安装..."
-            if ! $package_manager install -y "$dep"; then
-                red "❌ 错误：安装依赖 '$dep' 失败！"
-                return 1
-            fi
-            green "✅ 依赖 '$dep' 安装成功。"
-        else
-            log_quiet "依赖 '$dep' 已安装。"
+        if ! command -v "$dep" &>/dev/null; then
+            log "安装依赖 '$dep'..."
+            $package_manager install -y "$dep" >/dev/null 2>&1 || { red "❌ 安装失败"; return 1; }
+            green "✅ 安装成功。"
         fi
     done
-    log_quiet "===== 依赖检查完成 ====="
     return 0
 }
 
-# --- 服务控制函数 ---
+# --- 测试数据库连接 ---
+test_db_connection() {
+    log_quiet "测试数据库连接..."
+    mysql -u"$DB_USER" -p"$DB_PASS" -e "SELECT 1" &>/dev/null || { red "❌ 数据库连接失败。"; return 1; }
+    return 0
+}
+
+# --- 服务控制 ---
 stop_services() {
-    log_quiet "正在停止相关服务 (httpd, crond, $DB_SERVICE)..."
-    systemctl stop httpd crond $DB_SERVICE >/dev/null 2>&1
-    log_quiet "服务已停止。"
+    log_quiet "停止服务..."
+    local web=$(detect_web_server)
+    case "$web" in
+        nginx) systemctl stop nginx 2>/dev/null || true ;;
+        apache) systemctl stop httpd 2>/dev/null || true ;;
+    esac
+    systemctl stop crond "$DB_SERVICE" 2>/dev/null || true
 }
 
 start_services() {
-    log_quiet "正在启动相关服务 ($DB_SERVICE, httpd, crond)..."
-    systemctl start $DB_SERVICE httpd crond >/dev/null 2>&1
-    log_quiet "服务已启动。"
+    log_quiet "启动服务..."
+    systemctl start "$DB_SERVICE" 2>/dev/null || true
+    local web=$(detect_web_server)
+    case "$web" in
+        nginx) systemctl start nginx 2>/dev/null || true ;;
+        apache) systemctl start httpd 2>/dev/null || true ;;
+    esac
+    systemctl start crond 2>/dev/null || true
 }
 
-# --- 功能1: 安装 Cacti ---
+# --- 清理旧备份（用户确认后执行） ---
+cleanup_old_backups() {
+    if [ ! -d "$BACKUP_DIR" ]; then
+        echo "备份目录不存在，跳过清理。"
+        return
+    fi
+    local count=$(find "$BACKUP_DIR" -maxdepth 1 -name "*.tar.gz" -type f -mtime +"$BACKUP_RETENTION_DAYS" 2>/dev/null | wc -l)
+    if [ "$count" -eq 0 ]; then
+        green "✅ 没有超过 ${BACKUP_RETENTION_DAYS} 天的旧备份文件。"
+        return
+    fi
+    echo ""
+    yellow "📋 发现 $count 个超过 ${BACKUP_RETENTION_DAYS} 天的备份文件。"
+    read -p "确定要删除这些旧备份吗？(y/N): " confirm
+    if [[ "$confirm" =~ ^[Yy]$ ]]; then
+        find "$BACKUP_DIR" -maxdepth 1 -name "*.tar.gz" -type f -mtime +"$BACKUP_RETENTION_DAYS" -exec rm -f {} \;
+        green "✅ 已删除 $count 个旧备份文件。"
+        log "手动清理了 $count 个超过 ${BACKUP_RETENTION_DAYS} 天的备份。"
+    else
+        green "⏭️  跳过清理。"
+    fi
+}
+
+# --- 显示备份统计 ---
+show_backup_stats() {
+    if [ -d "$BACKUP_DIR" ]; then
+        local count=$(find "$BACKUP_DIR" -maxdepth 1 -name "*.tar.gz" -type f 2>/dev/null | wc -l)
+        local total_size=$(du -sh "$BACKUP_DIR" 2>/dev/null | cut -f1)
+        echo ""
+        green "📊 备份目录: $count 个文件，总大小 $total_size"
+    fi
+}
+
+# ========== 功能函数 ==========
+
 install_cacti() {
     clear
     blue "=================================================="
-    echo "              Cacti 一键安装脚本"
+    echo "              Cacti 一键安装"
     blue "=================================================="
-    yellow "⚠️  警告：此操作将从网络下载脚本并以 root 权限执行。"
-    echo "安装脚本地址: https://raw.githubusercontent.com/bi4nbn/zabbix/refs/heads/main/cacti/install.sh"
+    yellow "⚠️  将从网络下载脚本并以 root 执行。"
+    echo "地址: https://raw.githubusercontent.com/bi4nbn/zabbix/refs/heads/main/cacti/install.sh"
     echo ""
-    
-    log "===== 开始执行 Cacti 安装脚本 ====="
+    log "执行安装脚本..."
     if curl -sL https://raw.githubusercontent.com/bi4nbn/zabbix/refs/heads/main/cacti/install.sh | bash; then
-        green "🎉 Cacti 安装脚本执行完毕！"
-        log "Cacti 安装脚本执行成功。"
+        green "🎉 安装完成！"
+        log "安装成功。"
     else
-        red "❌ Cacti 安装脚本执行失败！请检查日志或网络连接。"
-        log "Cacti 安装脚本执行失败。"
+        red "❌ 安装失败！"
+        log "安装失败。"
     fi
-    
     echo ""
-    read -n 1 -s -r -p "按任意键返回主菜单..."
+    read -n 1 -s -r -p "按任意键返回..."
     main_menu
 }
 
-# --- 功能2: 全量备份（含 RRD） ---
 perform_backup() {
     clear
     blue "=================================================="
-    echo "              Cacti 全量备份 (DB + Configs + RRD)"
+    echo "              Cacti 全量备份"
     blue "=================================================="
-    
-    if ! check_dependencies; then
+
+    if ! check_dependencies || ! test_db_connection; then
         echo ""
-        read -n 1 -s -r -p "按任意键返回主菜单..."
+        read -n 1 -s -r -p "按任意键返回..."
         main_menu
         return
     fi
 
-    # 提示 RRD 可能很大
-    if [ "$BACKUP_RRD" = true ]; then
-        yellow "📊 注意：RRD 数据可能占用较大空间，请确保 $BACKUP_DIR 有足够容量。"
+    if [ "$BACKUP_RRD" = true ] && [ -d "$RRD_DIR" ]; then
+        yellow "📊 RRD 数据可能较大，请确保 $BACKUP_DIR 有足够空间。"
         echo ""
     fi
 
-    if [ ! -d "$BACKUP_DIR" ]; then
-        mkdir -p "$BACKUP_DIR"
-    fi
-
+    mkdir -p "$BACKUP_DIR"
     log "===== 开始全量备份 ====="
     local timestamp=$(date "+%Y%m%d_%H%M%S")
     local backup_filename="cacti_backup_${timestamp}.tar.gz"
     local full_backup_path="${BACKUP_DIR}/${backup_filename}"
     local temp_dir=$(mktemp -d)
 
-    # 1. 备份数据库
-    log "正在备份数据库 '$DB_NAME'..."
-    if ! mysqldump -u"$DB_USER" -p"$DB_PASS" "$DB_NAME" > "${temp_dir}/database.sql" 2>> "$LOG_FILE"; then
-        red "❌ 数据库备份失败！请检查数据库凭据和服务状态。"
+    # 备份数据库
+    log "备份数据库..."
+    if ! mysqldump -u"$DB_USER" -p"$DB_PASS" --single-transaction --routines --triggers "$DB_NAME" > "${temp_dir}/database.sql" 2>> "$LOG_FILE"; then
+        red "❌ 数据库备份失败！"
         rm -rf "$temp_dir"
-        log "备份失败，已清理临时文件。"
-    else
-        # 2. 备份配置文件
-        log "正在备份 Cacti 核心配置文件..."
-        local config_dir="${temp_dir}/configs"
-        mkdir -p "$config_dir"
-        for conf in "${CACTI_CONFIG_FILES[@]}"; do
-            if [ -f "$conf" ]; then
-                cp --parents "$conf" "$config_dir" 2>> "$LOG_FILE"
-                log "备份配置文件: $conf"
-            else
-                yellow "⚠️  配置文件不存在: $conf，跳过"
-            fi
-        done
-
-        # 3. 备份 RRD（默认开启）
-        if [ "$BACKUP_RRD" = true ] && [ -d "/var/lib/cacti/rra" ]; then
-            log "正在备份 RRD 数据（可能较大，请耐心等待）..."
-            rsync -a --delete "/var/lib/cacti/rra/" "${temp_dir}/rra/" >> "$LOG_FILE" 2>&1
-            green "✅ RRD 数据备份完成。"
-        else
-            if [ "$BACKUP_RRD" = false ]; then
-                log "跳过 RRD 备份 (BACKUP_RRD=false)"
-            else
-                yellow "⚠️  RRD 目录不存在，跳过。"
-            fi
-        fi
-
-        # 4. 打包
-        log "正在打包备份文件..."
-        if tar -czf "$full_backup_path" -C "$temp_dir" . >> "$LOG_FILE" 2>&1; then
-            green "🎉 全量备份成功！文件已保存至: ${full_backup_path}"
-            log "备份成功: ${full_backup_path}"
-        else
-            red "❌ 打包备份文件失败！"
-            log "打包备份文件失败。"
-        fi
-        rm -rf "$temp_dir"
+        log "备份失败。"
+        echo ""
+        read -n 1 -s -r -p "按任意键返回..."
+        main_menu
+        return
     fi
-    
+
+    # 备份配置文件
+    log "备份配置文件..."
+    local config_dir="${temp_dir}/configs"
+    mkdir -p "$config_dir"
+    for conf in "${CACTI_CONFIG_FILES[@]}"; do
+        if [ -f "$conf" ]; then
+            cp --parents "$conf" "$config_dir" 2>> "$LOG_FILE"
+            log "备份: $conf"
+        else
+            yellow "⚠️  配置文件不存在: $conf，跳过"
+        fi
+    done
+
+    # 备份 RRD
+    if [ "$BACKUP_RRD" = true ] && [ -d "$RRD_DIR" ]; then
+        log "备份 RRD 数据（可能需要较长时间）..."
+        rsync -a --delete "$RRD_DIR/" "${temp_dir}/rra/" >> "$LOG_FILE" 2>&1
+        green "✅ RRD 备份完成。"
+    else
+        [ "$BACKUP_RRD" = false ] && log "跳过 RRD 备份" || yellow "⚠️  RRD 目录不存在，跳过。"
+    fi
+
+    # 打包
+    log "正在打包..."
+    if tar -czf "$full_backup_path" -C "$temp_dir" . 2>> "$LOG_FILE"; then
+        local backup_size=$(du -h "$full_backup_path" | cut -f1)
+        green "🎉 备份成功！文件: ${full_backup_path} (大小: $backup_size)"
+        log "备份成功: ${full_backup_path} (大小: $backup_size)"
+    else
+        red "❌ 打包失败！"
+        log "打包失败。"
+        rm -rf "$temp_dir"
+        echo ""
+        read -n 1 -s -r -p "按任意键返回..."
+        main_menu
+        return
+    fi
+    rm -rf "$temp_dir"
+
+    show_backup_stats
     echo ""
-    read -n 1 -s -r -p "按任意键返回主菜单..."
+    read -n 1 -s -r -p "按任意键返回..."
     main_menu
 }
 
-# --- 功能3: 全量恢复 ---
 perform_restore() {
     clear
     blue "=================================================="
-    echo "              Cacti 全量恢复 (DB + Configs + RRD)"
+    echo "              Cacti 全量恢复"
     blue "=================================================="
 
     if ! check_dependencies; then
         echo ""
-        read -n 1 -s -r -p "按任意键返回主菜单..."
+        read -n 1 -s -r -p "按任意键返回..."
         main_menu
         return
     fi
 
-    # 查找所有备份文件并按时间倒序排序
-    mapfile -t BACKUP_FILES < <(ls -tp "${BACKUP_DIR}"/*.tar.gz 2>/dev/null | grep -v '/$')
-    
-    if [ ${#BACKUP_FILES[@]} -eq 0 ]; then
-        red "❌ 错误：在 $BACKUP_DIR 目录中未找到任何备份文件。"
+    # ---------- 数据库配置确认（密码明文） ----------
+    echo ""
+    yellow "当前数据库配置："
+    echo "  数据库名: $DB_NAME"
+    echo "  用户名: $DB_USER"
+    echo "  密码: $DB_PASS"
+    echo ""
+    read -p "是否使用以上配置继续？(y/N): " use_default
+    if [[ ! "$use_default" =~ ^[Yy]$ ]]; then
         echo ""
-        read -n 1 -s -r -p "按任意键返回主菜单..."
+        read -p "请输入数据库名 (默认: cacti): " new_db
+        [ -n "$new_db" ] && DB_NAME="$new_db"
+        read -p "请输入数据库用户名 (默认: cactiuser): " new_user
+        [ -n "$new_user" ] && DB_USER="$new_user"
+        read -p "请输入数据库密码: " new_pass
+        echo ""
+        [ -n "$new_pass" ] && DB_PASS="$new_pass"
+        log "用户修改了数据库配置: DB_NAME=$DB_NAME, DB_USER=$DB_USER"
+    fi
+
+    # 测试数据库连接
+    if ! test_db_connection; then
+        red "❌ 数据库连接失败，请检查配置。"
+        echo ""
+        read -n 1 -s -r -p "按任意键返回..."
         main_menu
         return
     fi
 
-    # --- 分页选择逻辑（保持不变） ---
+    # ---------- 清理询问 ----------
+    echo ""
+    yellow "🔄 是否清理超过 ${BACKUP_RETENTION_DAYS} 天的旧备份文件？"
+    read -p "输入 y 执行清理，其他键跳过: " clean_choice
+    if [[ "$clean_choice" =~ ^[Yy]$ ]]; then
+        cleanup_old_backups
+    else
+        green "⏭️  跳过清理。"
+    fi
+    echo ""
+
+    # 列出备份文件
+    mapfile -t BACKUP_FILES < <(ls -tp "${BACKUP_DIR}"/*.tar.gz 2>/dev/null | grep -v '/$')
+    if [ ${#BACKUP_FILES[@]} -eq 0 ]; then
+        red "❌ 未找到任何备份文件。"
+        echo ""
+        read -n 1 -s -r -p "按任意键返回..."
+        main_menu
+        return
+    fi
+
+    # 分页选择备份文件
     local selected_file=""
     local ITEMS_PER_PAGE=10
     local current_page=0
@@ -236,16 +317,13 @@ perform_restore() {
     while true; do
         clear
         blue "=================================================="
-        echo "              Cacti 全量恢复 - 选择备份"
+        echo "              Cacti 恢复 - 选择备份"
         blue "=================================================="
-        echo "📂 共找到 ${#BACKUP_FILES[@]} 个备份文件。 (第 $((current_page + 1)) / $total_pages 页)"
+        echo "📂 共 ${#BACKUP_FILES[@]} 个备份 (第 $((current_page + 1)) / $total_pages 页)"
         echo ""
-        
         local start_index=$(( current_page * ITEMS_PER_PAGE ))
         local end_index=$(( start_index + ITEMS_PER_PAGE - 1 ))
-        if [ $end_index -ge ${#BACKUP_FILES[@]} ]; then
-            end_index=$(( ${#BACKUP_FILES[@]} - 1 ))
-        fi
+        [ $end_index -ge ${#BACKUP_FILES[@]} ] && end_index=$(( ${#BACKUP_FILES[@]} - 1 ))
 
         local option_number=1
         for ((i = start_index; i <= end_index; i++)); do
@@ -258,256 +336,191 @@ perform_restore() {
 
         echo ""
         blue "--------------------------------------------------"
-        echo "操作提示:"
-        echo "  输入数字选择文件 | 'n' 下一页 | 'p' 上一页 | 'q' 取消"
+        echo "  输入数字选择 | n下一页 p上一页 q取消"
         blue "--------------------------------------------------"
-        
-        read -p "请输入您的选择: " user_choice
+        read -p "请输入选择: " user_choice
 
         if [[ "$user_choice" =~ ^[0-9]+$ ]]; then
             if [ "$user_choice" -ge 1 ] && [ "$user_choice" -le $((end_index - start_index + 1)) ]; then
-                local selected_index=$(( start_index + user_choice - 1 ))
+                selected_index=$(( start_index + user_choice - 1 ))
                 selected_file="${BACKUP_FILES[$selected_index]}"
                 break
             else
-                red "\n⚠️  无效的数字，请输入当前页列出的选项。"
+                red "无效数字"
                 sleep 1.5
             fi
         elif [[ "$user_choice" == "n" || "$user_choice" == "N" ]]; then
-            if [ $current_page -lt $((total_pages - 1)) ]; then
-                ((current_page++))
-            else
-                red "\n⚠️  已经是最后一页了。"
-                sleep 1.5
-            fi
+            [ $current_page -lt $((total_pages - 1)) ] && ((current_page++)) || { red "已是最后一页"; sleep 1.5; }
         elif [[ "$user_choice" == "p" || "$user_choice" == "P" ]]; then
-            if [ $current_page -gt 0 ]; then
-                ((current_page--))
-            else
-                red "\n⚠️  已经是第一页了。"
-                sleep 1.5
-            fi
+            [ $current_page -gt 0 ] && ((current_page--)) || { red "已是第一页"; sleep 1.5; }
         elif [[ "$user_choice" == "q" || "$user_choice" == "Q" ]]; then
-            log "用户取消了恢复操作。"
+            log "取消恢复"
             main_menu
             return
         else
-            red "\n⚠️  无效的输入，请重试。"
+            red "无效输入"
             sleep 1.5
         fi
     done
 
-    # 确认选择
     echo ""
-    yellow "您选择恢复的文件是: $(basename "$selected_file")"
-    read -p "是否确认恢复此文件? (y/N): " confirm
-    if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
-        log "用户确认环节取消了恢复操作。"
+    yellow "选择恢复: $(basename "$selected_file")"
+
+    # 验证完整性
+    log "验证备份文件完整性..."
+    if ! tar -tzf "$selected_file" >/dev/null 2>&1; then
+        red "❌ 备份文件损坏！"
+        log "完整性检查失败。"
+        echo ""
+        read -n 1 -s -r -p "按任意键返回..."
+        main_menu
+        return
+    fi
+    green "✅ 完整性检查通过。"
+
+    read -p "⚠️  恢复将覆盖现有数据，是否继续? (y/N): " confirm
+    [[ ! "$confirm" =~ ^[Yy]$ ]] && { log "取消恢复"; main_menu; return; }
+
+    log "===== 开始恢复 ====="
+    local temp_dir=$(mktemp -d)
+    stop_services
+
+    log "解压备份..."
+    if ! tar -xzf "$selected_file" -C "$temp_dir" >> "$LOG_FILE" 2>&1; then
+        red "❌ 解压失败！"
+        start_services
+        rm -rf "$temp_dir"
+        echo ""
+        read -n 1 -s -r -p "按任意键返回..."
         main_menu
         return
     fi
 
-    # --- 开始恢复 ---
-    log "===== 开始全量恢复 ====="
-    log "选择恢复的文件: $selected_file"
-    local temp_dir=$(mktemp -d)
-
-    stop_services
-
-    log "正在解压备份文件..."
-    if ! tar -xzf "$selected_file" -C "$temp_dir" >> "$LOG_FILE" 2>&1; then
-        red "❌ 解压备份文件失败！文件可能已损坏。"
-        log "解压备份文件失败。"
-        start_services
-        rm -rf "$temp_dir"
+    # 恢复数据库
+    log "恢复数据库..."
+    systemctl start "$DB_SERVICE" 2>/dev/null || true
+    mysql -u"$DB_USER" -p"$DB_PASS" -e "DROP DATABASE IF EXISTS $DB_NAME; CREATE DATABASE $DB_NAME CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;" >> "$LOG_FILE" 2>&1
+    if mysql -u"$DB_USER" -p"$DB_PASS" "$DB_NAME" < "${temp_dir}/database.sql" >> "$LOG_FILE" 2>&1; then
+        green "✅ 数据库恢复成功。"
     else
-        # 1. 恢复数据库
-        log "正在恢复数据库..."
-        systemctl start $DB_SERVICE >/dev/null 2>&1
-        mysql -u"$DB_USER" -p"$DB_PASS" -e "DROP DATABASE IF EXISTS $DB_NAME; CREATE DATABASE $DB_NAME CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;" >> "$LOG_FILE" 2>&1
-        if mysql -u"$DB_USER" -p"$DB_PASS" "$DB_NAME" < "${temp_dir}/database.sql" >> "$LOG_FILE" 2>&1; then
-            green "✅ 数据库恢复成功。"
-            log "数据库恢复成功。"
-        else
-            red "❌ 数据库恢复失败！"
-            log "数据库恢复失败。"
-        fi
-
-        # 2. 恢复配置文件
-        if [ -d "${temp_dir}/configs" ]; then
-            log "正在恢复 Cacti 核心配置文件..."
-            cp -r "${temp_dir}/configs/"* / 2>> "$LOG_FILE"
-            green "✅ 配置文件恢复完成。"
-            log "配置文件恢复完成。"
-        else
-            yellow "⚠️  备份中无配置文件目录，跳过。"
-            log "备份中无配置文件目录。"
-        fi
-
-        # 3. 恢复 RRD（如有）
-        if [ -d "${temp_dir}/rra" ]; then
-            log "正在恢复 RRD 数据..."
-            rsync -a --delete "${temp_dir}/rra/" "/var/lib/cacti/rra/" >> "$LOG_FILE" 2>&1
-            green "✅ RRD 数据恢复完成。"
-            log "RRD 数据恢复完成。"
-        else
-            yellow "⚠️  备份中无 RRD 数据，跳过。"
-            log "备份中无 RRD 数据。"
-        fi
-
-        green "🎉 全量恢复流程完成！"
-        log "全量恢复完成。"
-        echo ""
-        local web_server=$(detect_web_server)
-        yellow "检测到当前 Web 服务器: $web_server"
-        echo "请手动检查并配置 Web 服务器（Apache/Nginx）的虚拟主机指向 Cacti 目录，"
-        echo "并确保 PHP 扩展和数据库连接信息正确。"
+        red "❌ 数据库恢复失败！"
     fi
+
+    # 恢复配置文件
+    if [ -d "${temp_dir}/configs" ]; then
+        log "恢复配置文件..."
+        cp -a "${temp_dir}/configs/"* / 2>> "$LOG_FILE"
+        green "✅ 配置文件恢复完成。"
+    else
+        yellow "⚠️  备份中无配置文件。"
+    fi
+
+    # 恢复 RRD
+    if [ -d "${temp_dir}/rra" ]; then
+        log "恢复 RRD 数据..."
+        mkdir -p "$RRD_DIR"
+        rsync -a --delete "${temp_dir}/rra/" "$RRD_DIR/" >> "$LOG_FILE" 2>&1
+        green "✅ RRD 恢复完成。"
+    else
+        yellow "⚠️  备份中无 RRD 数据。"
+    fi
+
+    # 权限修复
+    chown -R nginx:nginx "$RRD_DIR" 2>/dev/null || chown -R apache:apache "$RRD_DIR" 2>/dev/null || true
+    chmod -R 775 "$RRD_DIR" 2>/dev/null || true
+
+    green "🎉 恢复完成！"
+    log "恢复完成。"
+    echo ""
+    local web_server=$(detect_web_server)
+    yellow "当前 Web 服务器: $web_server，请检查配置。"
 
     rm -rf "$temp_dir"
     start_services
     echo ""
-    read -n 1 -s -r -p "按任意键返回主菜单..."
+    read -n 1 -s -r -p "按任意键返回..."
     main_menu
 }
 
-# --- 功能4: 卸载 Cacti ---
 uninstall_cacti() {
     clear
     red "=================================================="
     echo "           !!! DANGER: Cacti 卸载 !!!"
     red "=================================================="
-    red "此操作将彻底删除 Cacti 及其所有相关组件！"
-    red "包括：数据库、RRD文件、程序文件、依赖包、系统配置和 MariaDB 数据目录。"
+    red "此操作将彻底删除 Cacti 及所有相关组件！"
     echo ""
-    yellow "为保护您的数据，脚本将首先尝试创建一个最后的备份。"
-    
+    yellow "将尝试创建最后的备份。"
     read -p "是否继续? (y/N): " confirm
-    if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
-        log "用户取消了卸载操作。"
-        echo "卸载已取消。"
-        echo ""
-        read -n 1 -s -r -p "按任意键返回主菜单..."
-        main_menu
-        return
-    fi
+    [[ ! "$confirm" =~ ^[Yy]$ ]] && { log "取消卸载"; main_menu; return; }
 
-    # 1. 最后一次备份
-    log "===== 开始执行卸载前的最后一次备份 ====="
-    if check_dependencies; then
+    # 最后一次备份
+    log "执行卸载前备份..."
+    if check_dependencies && test_db_connection; then
         local timestamp=$(date "+%Y%m%d_%H%M%S")
         local backup_filename="cacti_uninstall_backup_${timestamp}.tar.gz"
         local full_backup_path="${BACKUP_DIR}/${backup_filename}"
         local temp_dir=$(mktemp -d)
-        
-        if mysqldump -u"$DB_USER" -p"$DB_PASS" "$DB_NAME" > "${temp_dir}/database.sql" 2>> "$LOG_FILE"; then
-            rsync -a --delete "/var/lib/cacti/rra/" "${temp_dir}/rra/" >> "$LOG_FILE" 2>&1
-            rsync -a --delete "/usr/share/cacti/" "${temp_dir}/web/" >> "$LOG_FILE" 2>&1
+        if mysqldump -u"$DB_USER" -p"$DB_PASS" --single-transaction "$DB_NAME" > "${temp_dir}/database.sql" 2>> "$LOG_FILE"; then
+            [ -d "$RRD_DIR" ] && rsync -a --delete "$RRD_DIR/" "${temp_dir}/rra/" >> "$LOG_FILE" 2>&1
+            cp -r /usr/share/cacti "${temp_dir}/web" 2>> "$LOG_FILE" || true
             tar -czf "$full_backup_path" -C "$temp_dir" . >> "$LOG_FILE" 2>&1
-            green "✅ 卸载前备份成功！文件已保存至: ${full_backup_path}"
-            log "卸载前备份成功: ${full_backup_path}"
+            green "✅ 备份成功: ${full_backup_path}"
         else
-            yellow "⚠️  警告：卸载前备份数据库失败！卸载将继续，但您将失去数据。"
-            log "卸载前备份数据库失败！"
+            yellow "⚠️  数据库备份失败，继续卸载。"
         fi
         rm -rf "$temp_dir"
     else
-        yellow "⚠️  警告：缺少依赖，无法创建卸载前备份！卸载将继续，但您将失去数据。"
-        log "缺少依赖，无法创建卸载前备份。"
+        yellow "⚠️  无法创建备份，继续卸载。"
     fi
-    
+
     echo ""
-    red "=================================================="
-    echo "           !!! FINAL WARNING: CONFIRM !!!"
-    red "=================================================="
-    red "您确定要永久删除 Cacti 及其所有依赖吗？此操作不可逆转！"
-    read -p "请输入 'UNINSTALL' 以确认卸载: " final_confirm
-    if [ "$final_confirm" != "UNINSTALL" ]; then
-        log "用户未能正确确认，卸载操作已中止。"
-        echo "卸载已中止。"
-        echo ""
-        read -n 1 -s -r -p "按任意键返回主菜单..."
-        main_menu
-        return
-    fi
+    red "确认卸载：请输入 'UNINSTALL'"
+    read -p "> " final_confirm
+    [ "$final_confirm" != "UNINSTALL" ] && { log "取消卸载"; main_menu; return; }
 
-    # 2. 执行终极卸载
-    log "===== 开始执行 Cacti 终极卸载 ====="
-    
-    # 停止所有相关服务
-    log "正在停止所有相关服务..."
-    systemctl stop httpd mariadb snmpd  >/dev/null 2>&1
-    systemctl disable httpd mariadb snmpd  >/dev/null 2>&1
+    log "开始终极卸载..."
+    systemctl stop nginx httpd mariadb snmpd crond 2>/dev/null || true
+    systemctl disable nginx httpd mariadb snmpd 2>/dev/null || true
 
-    # 卸载所有相关的包
-    log "正在卸载所有相关软件包..."
-    dnf remove -y cacti cacti-spine httpd mariadb-server php\* net-snmp\* rrdtool\* >/dev/null 2>&1
-    # 清理不再需要的依赖
-    dnf autoremove -y >/dev/null 2>&1
+    dnf remove -y cacti cacti-spine httpd mariadb-server php\* net-snmp\* rrdtool\* nginx 2>/dev/null || yum remove -y cacti cacti-spine httpd mariadb-server php\* net-snmp\* rrdtool\* nginx 2>/dev/null || true
+    dnf autoremove -y 2>/dev/null || yum autoremove -y 2>/dev/null || true
 
-    # 删除残留的文件和目录 (包含 MariaDB 数据目录)
-    log "正在清理残留文件和目录..."
-    rm -rf /var/lib/cacti
-    rm -rf /usr/share/cacti
-    rm -rf /etc/cacti
-    rm -rf /etc/spine.conf
-    rm -rf /etc/httpd/conf.d/cacti.conf
-    rm -rf /etc/httpd/conf.d/redirects.conf
-    rm -rf /etc/cron.d/cacti
-    rm -rf /var/log/cacti
-    rm -rf /var/lib/mysql  
-    rm -rf /etc/my.cnf
-    rm -rf /etc/my.cnf.d
-    rm -rf /etc/php.ini
-    rm -rf /etc/php.d
+    rm -rf /usr/share/cacti /etc/cacti /etc/spine.conf /etc/httpd/conf.d/cacti.conf /etc/httpd/conf.d/redirects.conf /etc/cron.d/cacti /var/log/cacti /var/lib/mysql /etc/my.cnf /etc/my.cnf.d /etc/php.ini /etc/php.d
+    rm -f /etc/nginx/conf.d/cacti.conf /etc/nginx/sites-enabled/cacti 2>/dev/null || true
 
-    log "🎉 Cacti 终极卸载完成！"
-    green "🎉 Cacti 终极卸载完成！"
-    
-    read -n 1 -s -r -p "按任意键返回主菜单..."
+    green "🎉 卸载完成！"
+    log "卸载完成。"
+    echo ""
+    read -n 1 -s -r -p "按任意键返回..."
     main_menu
 }
 
-# --- 主菜单 ---
 main_menu() {
     clear
     blue "=================================================="
     green "           Cacti 一站式管理工具箱"
     blue "=================================================="
     echo "  (1) 安装 Cacti"
-    echo "  (2) 备份 Cacti (全量: DB + Configs + RRD)"
-    echo "  (3) 恢复 Cacti (全量: DB + Configs + RRD)"
+    echo "  (2) 备份 Cacti"
+    echo "  (3) 恢复 Cacti"
     echo "  (4) 卸载 Cacti"
     echo "  (5) 退出脚本"
     blue "=================================================="
-    read -p "请输入您的选择 [1-5]: " choice
-
+    read -p "请输入选择 [1-5]: " choice
     case $choice in
         1) install_cacti ;;
         2) perform_backup ;;
         3) perform_restore ;;
         4) uninstall_cacti ;;
-        5)
-            log "用户选择退出脚本。"
-            green "感谢使用，再见！"
-            exit 0
-            ;;
-        *)
-            red "无效的选项，请输入 1-5 之间的数字。"
-            sleep 2
-            main_menu
-            ;;
+        5) log "退出脚本。"; green "再见！"; exit 0 ;;
+        *) red "无效选项。"; sleep 2; main_menu ;;
     esac
 }
 
-# --- 脚本入口 ---
+# --- 入口 ---
 if [ "$(id -u)" -ne 0 ]; then
-    red "❌ 错误：此脚本需要 root 权限来执行。"
+    red "❌ 需要 root 权限。"
     exit 1
 fi
-
-# 确保日志目录存在
 mkdir -p "$BACKUP_DIR"
-
-# 启动主菜单
 main_menu
