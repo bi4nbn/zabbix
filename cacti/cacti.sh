@@ -3,11 +3,11 @@
 # Cacti 一站式管理脚本 (安装/备份/恢复/卸载)
 # 功能:
 #   1. 【集成安装】通过官方脚本一键安装 Cacti。
-#   2. 【全量备份】自动检测依赖，备份数据库、RRD文件、程序和配置。
-#   3. 【安全恢复】恢复前停止服务，恢复后重启，确保数据一致性。
-#   4. 【终极卸载】智能识别并清理安装脚本带来的所有包、配置、服务和数据目录。
-#   5. 【持久化菜单】操作完成后返回主菜单，方便连续管理。
-#   6. 【详细日志】所有操作记录在 /backup/cacti/cacti_backup_restore.log。
+#   2. 【全量备份】备份数据库、Cacti 核心配置文件、RRD 绘图数据（不包含 Web 服务器配置）。
+#   3. 【安全恢复】恢复数据库、配置文件和 RRD 数据，兼容 Apache/Nginx。
+#   4. 【终极卸载】智能清理所有组件。
+#   5. 【持久化菜单】操作完成后返回主菜单。
+#   6. 【详细日志】记录所有操作。
 ##############################################################################
 
 # ======================== 【配置区】 ========================
@@ -17,8 +17,14 @@ DB_PASS="cactiuser"
 DB_SERVICE="mariadb"
 BACKUP_DIR="/backup/cacti"
 LOG_FILE="${BACKUP_DIR}/cacti_backup_restore.log"
-# =================================================================
 
+# 备份开关（默认备份 RRD，若空间不足可改为 false）
+BACKUP_RRD=true          # 是否备份 RRD 绘图数据（默认 true）
+CACTI_CONFIG_FILES=(      # 需要备份的核心配置文件（根据实际路径调整）
+    "/usr/share/cacti/include/config.php"
+    "/etc/cacti/spine.conf"
+)
+# =================================================================
 
 # --- 颜色和日志函数 ---
 red() { echo -e "\033[31m$1\033[0m"; }
@@ -35,6 +41,17 @@ log() {
 log_quiet() {
     local timestamp=$(date "+%Y-%m-%d %H:%M:%S")
     echo "[$timestamp] $1" >> "$LOG_FILE"
+}
+
+# --- Web 服务器检测（仅用于提示） ---
+detect_web_server() {
+    if systemctl is-active --quiet nginx 2>/dev/null || command -v nginx &>/dev/null; then
+        echo "nginx"
+    elif systemctl is-active --quiet httpd 2>/dev/null || command -v httpd &>/dev/null; then
+        echo "apache"
+    else
+        echo "unknown"
+    fi
 }
 
 # --- 依赖检查函数 ---
@@ -105,11 +122,11 @@ install_cacti() {
     main_menu
 }
 
-# --- 功能2: 备份 Cacti ---
+# --- 功能2: 全量备份（含 RRD） ---
 perform_backup() {
     clear
     blue "=================================================="
-    echo "              Cacti 全量备份"
+    echo "              Cacti 全量备份 (DB + Configs + RRD)"
     blue "=================================================="
     
     if ! check_dependencies; then
@@ -119,35 +136,56 @@ perform_backup() {
         return
     fi
 
+    # 提示 RRD 可能很大
+    if [ "$BACKUP_RRD" = true ]; then
+        yellow "📊 注意：RRD 数据可能占用较大空间，请确保 $BACKUP_DIR 有足够容量。"
+        echo ""
+    fi
+
     if [ ! -d "$BACKUP_DIR" ]; then
-        log "备份目录 $BACKUP_DIR 不存在，正在创建..."
         mkdir -p "$BACKUP_DIR"
     fi
 
-    log "===== 开始执行全量备份 ====="
-    local timestamp=$(date "+%Y%m%d_%H:%M:%S")
+    log "===== 开始全量备份 ====="
+    local timestamp=$(date "+%Y%m%d_%H%M%S")
     local backup_filename="cacti_backup_${timestamp}.tar.gz"
     local full_backup_path="${BACKUP_DIR}/${backup_filename}"
     local temp_dir=$(mktemp -d)
 
+    # 1. 备份数据库
     log "正在备份数据库 '$DB_NAME'..."
     if ! mysqldump -u"$DB_USER" -p"$DB_PASS" "$DB_NAME" > "${temp_dir}/database.sql" 2>> "$LOG_FILE"; then
         red "❌ 数据库备份失败！请检查数据库凭据和服务状态。"
         rm -rf "$temp_dir"
         log "备份失败，已清理临时文件。"
     else
-        log "正在备份 RRD 数据文件..."
-        rsync -a --delete "/var/lib/cacti/rra/" "${temp_dir}/rra/" >> "$LOG_FILE" 2>&1
-        
-        log "正在备份 Cacti Web 目录..."
-        rsync -a --delete "/usr/share/cacti/" "${temp_dir}/web/" >> "$LOG_FILE" 2>&1
-        
-        log "正在备份相关配置文件..."
-        mkdir -p "${temp_dir}/configs"
-        cp -r /etc/httpd/conf.d "${temp_dir}/configs/" 2>> "$LOG_FILE"
-        cp /etc/php.ini "${temp_dir}/configs/" 2>> "$LOG_FILE"
-        #cp /etc/my.cnf "${temp_dir}/configs/" 2>> "$LOG_FILE" #数据库配置
+        # 2. 备份配置文件
+        log "正在备份 Cacti 核心配置文件..."
+        local config_dir="${temp_dir}/configs"
+        mkdir -p "$config_dir"
+        for conf in "${CACTI_CONFIG_FILES[@]}"; do
+            if [ -f "$conf" ]; then
+                cp --parents "$conf" "$config_dir" 2>> "$LOG_FILE"
+                log "备份配置文件: $conf"
+            else
+                yellow "⚠️  配置文件不存在: $conf，跳过"
+            fi
+        done
 
+        # 3. 备份 RRD（默认开启）
+        if [ "$BACKUP_RRD" = true ] && [ -d "/var/lib/cacti/rra" ]; then
+            log "正在备份 RRD 数据（可能较大，请耐心等待）..."
+            rsync -a --delete "/var/lib/cacti/rra/" "${temp_dir}/rra/" >> "$LOG_FILE" 2>&1
+            green "✅ RRD 数据备份完成。"
+        else
+            if [ "$BACKUP_RRD" = false ]; then
+                log "跳过 RRD 备份 (BACKUP_RRD=false)"
+            else
+                yellow "⚠️  RRD 目录不存在，跳过。"
+            fi
+        fi
+
+        # 4. 打包
         log "正在打包备份文件..."
         if tar -czf "$full_backup_path" -C "$temp_dir" . >> "$LOG_FILE" 2>&1; then
             green "🎉 全量备份成功！文件已保存至: ${full_backup_path}"
@@ -164,11 +202,11 @@ perform_backup() {
     main_menu
 }
 
-# --- 功能3: 恢复 Cacti (优化版) ---
+# --- 功能3: 全量恢复 ---
 perform_restore() {
     clear
     blue "=================================================="
-    echo "              Cacti 全量恢复"
+    echo "              Cacti 全量恢复 (DB + Configs + RRD)"
     blue "=================================================="
 
     if ! check_dependencies; then
@@ -178,7 +216,7 @@ perform_restore() {
         return
     fi
 
-    # 查找所有备份文件并按时间倒序排序（最新的在前）
+    # 查找所有备份文件并按时间倒序排序
     mapfile -t BACKUP_FILES < <(ls -tp "${BACKUP_DIR}"/*.tar.gz 2>/dev/null | grep -v '/$')
     
     if [ ${#BACKUP_FILES[@]} -eq 0 ]; then
@@ -189,7 +227,7 @@ perform_restore() {
         return
     fi
 
-    # --- 开始：优雅的文件选择逻辑 ---
+    # --- 分页选择逻辑（保持不变） ---
     local selected_file=""
     local ITEMS_PER_PAGE=10
     local current_page=0
@@ -203,18 +241,15 @@ perform_restore() {
         echo "📂 共找到 ${#BACKUP_FILES[@]} 个备份文件。 (第 $((current_page + 1)) / $total_pages 页)"
         echo ""
         
-        # 计算当前页要显示的文件索引范围
         local start_index=$(( current_page * ITEMS_PER_PAGE ))
         local end_index=$(( start_index + ITEMS_PER_PAGE - 1 ))
         if [ $end_index -ge ${#BACKUP_FILES[@]} ]; then
             end_index=$(( ${#BACKUP_FILES[@]} - 1 ))
         fi
 
-        # 打印当前页的文件列表
         local option_number=1
         for ((i = start_index; i <= end_index; i++)); do
             local file="${BACKUP_FILES[$i]}"
-            # 获取文件大小和修改时间
             local file_size=$(du -h "$file" | cut -f1)
             local file_date=$(date -r "$file" +"%Y-%m-%d %H:%M:%S")
             printf "  [%d]  %-60s %8s  %s\n" "$option_number" "$(basename "$file")" "$file_size" "$file_date"
@@ -229,19 +264,16 @@ perform_restore() {
         
         read -p "请输入您的选择: " user_choice
 
-        # 处理用户输入
         if [[ "$user_choice" =~ ^[0-9]+$ ]]; then
-            # 如果是数字，检查是否在当前页的有效范围内
             if [ "$user_choice" -ge 1 ] && [ "$user_choice" -le $((end_index - start_index + 1)) ]; then
                 local selected_index=$(( start_index + user_choice - 1 ))
                 selected_file="${BACKUP_FILES[$selected_index]}"
-                break # 选择有效，跳出循环
+                break
             else
                 red "\n⚠️  无效的数字，请输入当前页列出的选项。"
                 sleep 1.5
             fi
         elif [[ "$user_choice" == "n" || "$user_choice" == "N" ]]; then
-            # 下一页
             if [ $current_page -lt $((total_pages - 1)) ]; then
                 ((current_page++))
             else
@@ -249,7 +281,6 @@ perform_restore() {
                 sleep 1.5
             fi
         elif [[ "$user_choice" == "p" || "$user_choice" == "P" ]]; then
-            # 上一页
             if [ $current_page -gt 0 ]; then
                 ((current_page--))
             else
@@ -257,17 +288,14 @@ perform_restore() {
                 sleep 1.5
             fi
         elif [[ "$user_choice" == "q" || "$user_choice" == "Q" ]]; then
-            # 取消操作
             log "用户取消了恢复操作。"
             main_menu
             return
         else
-            # 无效输入
             red "\n⚠️  无效的输入，请重试。"
             sleep 1.5
         fi
     done
-    # --- 结束：优雅的文件选择逻辑 ---
 
     # 确认选择
     echo ""
@@ -279,8 +307,8 @@ perform_restore() {
         return
     fi
 
-    # --- 恢复执行逻辑 (与原版相同) ---
-    log "===== 开始执行全量恢复 ====="
+    # --- 开始恢复 ---
+    log "===== 开始全量恢复 ====="
     log "选择恢复的文件: $selected_file"
     local temp_dir=$(mktemp -d)
 
@@ -293,30 +321,50 @@ perform_restore() {
         start_services
         rm -rf "$temp_dir"
     else
+        # 1. 恢复数据库
         log "正在恢复数据库..."
         systemctl start $DB_SERVICE >/dev/null 2>&1
         mysql -u"$DB_USER" -p"$DB_PASS" -e "DROP DATABASE IF EXISTS $DB_NAME; CREATE DATABASE $DB_NAME CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;" >> "$LOG_FILE" 2>&1
         if mysql -u"$DB_USER" -p"$DB_PASS" "$DB_NAME" < "${temp_dir}/database.sql" >> "$LOG_FILE" 2>&1; then
-            log "正在恢复 RRD 数据文件..."
-            rsync -a --delete "${temp_dir}/rra/" "/var/lib/cacti/rra/" >> "$LOG_FILE" 2>&1
-            
-            log "正在恢复 Cacti Web 目录..."
-            rsync -a --delete "${temp_dir}/web/" "/usr/share/cacti/" >> "$LOG_FILE" 2>&1
-
-            log "正在恢复相关配置文件..."
-            cp -r "${temp_dir}/configs/httpd_conf.d/"* "/etc/httpd/conf.d/" 2>> "$LOG_FILE"
-            cp "${temp_dir}/configs/php.ini" "/etc/" 2>> "$LOG_FILE"
-            #cp "${temp_dir}/configs/my.cnf" "/etc/" 2>> "$LOG_FILE" #恢复数据库配置
-            
-            green "🎉 全量恢复成功！"
-            log "全量恢复成功。"
+            green "✅ 数据库恢复成功。"
+            log "数据库恢复成功。"
         else
             red "❌ 数据库恢复失败！"
             log "数据库恢复失败。"
         fi
-        rm -rf "$temp_dir"
+
+        # 2. 恢复配置文件
+        if [ -d "${temp_dir}/configs" ]; then
+            log "正在恢复 Cacti 核心配置文件..."
+            cp -r "${temp_dir}/configs/"* / 2>> "$LOG_FILE"
+            green "✅ 配置文件恢复完成。"
+            log "配置文件恢复完成。"
+        else
+            yellow "⚠️  备份中无配置文件目录，跳过。"
+            log "备份中无配置文件目录。"
+        fi
+
+        # 3. 恢复 RRD（如有）
+        if [ -d "${temp_dir}/rra" ]; then
+            log "正在恢复 RRD 数据..."
+            rsync -a --delete "${temp_dir}/rra/" "/var/lib/cacti/rra/" >> "$LOG_FILE" 2>&1
+            green "✅ RRD 数据恢复完成。"
+            log "RRD 数据恢复完成。"
+        else
+            yellow "⚠️  备份中无 RRD 数据，跳过。"
+            log "备份中无 RRD 数据。"
+        fi
+
+        green "🎉 全量恢复流程完成！"
+        log "全量恢复完成。"
+        echo ""
+        local web_server=$(detect_web_server)
+        yellow "检测到当前 Web 服务器: $web_server"
+        echo "请手动检查并配置 Web 服务器（Apache/Nginx）的虚拟主机指向 Cacti 目录，"
+        echo "并确保 PHP 扩展和数据库连接信息正确。"
     fi
-    
+
+    rm -rf "$temp_dir"
     start_services
     echo ""
     read -n 1 -s -r -p "按任意键返回主菜单..."
@@ -413,12 +461,12 @@ uninstall_cacti() {
     rm -rf /etc/php.ini
     rm -rf /etc/php.d
 
-    log green "🎉 Cacti 终极卸载完成！"
+    log "🎉 Cacti 终极卸载完成！"
+    green "🎉 Cacti 终极卸载完成！"
     
     read -n 1 -s -r -p "按任意键返回主菜单..."
     main_menu
 }
-
 
 # --- 主菜单 ---
 main_menu() {
@@ -427,8 +475,8 @@ main_menu() {
     green "           Cacti 一站式管理工具箱"
     blue "=================================================="
     echo "  (1) 安装 Cacti"
-    echo "  (2) 备份 Cacti"
-    echo "  (3) 恢复 Cacti"
+    echo "  (2) 备份 Cacti (全量: DB + Configs + RRD)"
+    echo "  (3) 恢复 Cacti (全量: DB + Configs + RRD)"
     echo "  (4) 卸载 Cacti"
     echo "  (5) 退出脚本"
     blue "=================================================="
